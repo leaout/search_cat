@@ -18,7 +18,7 @@ def find_best_match(properties, query):
 def main():
     ocr = Ocr()
     handler = WindowHandler()
-    if not handler.choose_window(): return
+    handler.choose_window()
     operator = WinOperator(handler.window)
     
     def find_and_click(text):
@@ -30,7 +30,9 @@ def main():
     
     
     while True:
-        ocr.do_ocr(handler.capture_screenshot("screenshot.png"))
+        screenshot_path = handler.capture_screenshot("screenshot.png")
+        print(screenshot_path)
+        ocr.do_ocr(screenshot_path)
         clock_head_p = ocr.multi_scale_template_match("screenshot.png","clock_head.png")
         btn_confirm_p = ocr.multi_scale_template_match("screenshot.png","btn_confirm.png")
         correct_icon_p = ocr.multi_scale_template_match("screenshot,png", "correct_icon.png")
@@ -49,3 +51,5 @@ def main():
             
         time.sleep(1)
         
+if __name__ == "__main__":
+    main()
