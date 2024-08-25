@@ -1,0 +1,10 @@
+pyautogui
+opencv-python
+typing
+matplotlib
+pillow
+numpy
+paddlepaddle
+pygetwindow
+mss
+FuzzyWuzzy

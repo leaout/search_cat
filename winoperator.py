@@ -1,0 +1,213 @@
+from typing import Callable, Any, List, Tuple
+import pyautogui
+
+class WinOperator:
+    def __init__(self, window=None):
+        """
+        初始化WinOperator类。
+
+        参数:
+        window (object, optional): 通过pygetwindow获取的窗口对象。如果未提供，则操作将在整个桌面上进行。
+        """
+        self.window = window
+
+    def click(self, x: int, y: int, window=None) -> None:
+        """
+        在指定窗口中的特定位置执行点击操作。
+
+        参数:
+        x (int): 相对于窗口左上角的X坐标。
+        y (int): 相对于窗口左上角的Y坐标。
+        window (object, optional): 通过pygetwindow获取的窗口对象。如果未提供，则使用实例化时的窗口。
+        """
+        self._perform_action('click', x, y, window)
+
+    def double_click(self, x: int, y: int, window=None) -> None:
+        """
+        在指定窗口中的特定位置执行双击操作。
+
+        参数:
+        x (int): 相对于窗口左上角的X坐标。
+        y (int): 相对于窗口左上角的Y坐标。
+        window (object, optional): 通过pygetwindow获取的窗口对象。如果未提供，则使用实例化时的窗口。
+        """
+        self._perform_action('doubleClick', x, y, window)
+
+    def long_click(self, x: int, y: int, duration: float = 2.0, window=None) -> None:
+        """
+        在指定窗口中的特定位置执行长按操作。
+
+        参数:
+        x (int): 相对于窗口左上角的X坐标。
+        y (int): 相对于窗口左上角的Y坐标。
+        duration (float, optional): 长按的持续时间。默认是2秒。
+        window (object, optional): 通过pygetwindow获取的窗口对象。如果未提供，则使用实例化时的窗口。
+        """
+        self._perform_long_click_action(x, y, duration, window)
+        
+    def move_to(self, x: int, y: int, window=None) -> None:
+        """
+        将鼠标移动到指定窗口中的特定位置。
+
+        参数:
+        x (int): 相对于窗口左上角的X坐标。
+        y (int): 相对于窗口左上角的Y坐标。
+        window (object, optional): 通过pygetwindow获取的窗口对象。如果未提供，则使用实例化时的窗口。
+        """
+        self._perform_action('moveTo', x, y, window)
+
+    def right_click(self, x: int, y: int, window=None) -> None:
+        """
+        在指定窗口中的特定位置执行右击操作。
+
+        参数:
+        x (int): 相对于窗口左上角的X坐标。
+        y (int): 相对于窗口左上角的Y坐标。
+        window (object, optional): 通过pygetwindow获取的窗口对象。如果未提供，则使用实例化时的窗口。
+        """
+        self._perform_action('rightClick', x, y, window)
+
+    def scroll(self, clicks: int, window=None) -> None:
+        """
+        在指定窗口内执行滚动操作。
+
+        参数:
+        clicks (int): 滚动的行数。如果为正数，则向上滚动；如果为负数，则向下滚动。
+        window (object, optional): 通过pygetwindow获取的窗口对象。如果未提供，则使用实例化时的窗口。
+        """
+        self._perform_scroll_action(clicks, window)
+        
+    def swipe(self, start_x: int, start_y: int, end_x: int, end_y: int, duration: float = 0.5, window=None) -> None:
+        """
+        在指定窗口内执行滑动操作。
+
+        参数:
+        start_x (int): 起始点相对于窗口左上角的X坐标。
+        start_y (int): 起始点相对于窗口左上角的Y坐标。
+        end_x (int): 终点相对于窗口左上角的X坐标。
+        end_y (int): 终点相对于窗口左上角的Y坐标。
+        duration (float, optional): 滑动的持续时间。默认是0.5秒。
+        window (object, optional): 通过pygetwindow获取的窗口对象。如果未提供，则使用实例化时的窗口。
+        """
+        self._perform_swipe_action(start_x, start_y, end_x, end_y, duration, window)
+
+    def gesture(self, points: list, duration: float = 0.5, window=None) -> None:
+        """
+        在指定窗口内执行多个坐标点的手势操作。
+
+        参数:
+        points (list): 坐标点列表，每个点是一个元组 (x, y)，相对于窗口左上角的坐标。
+        duration (float, optional): 每次移动的持续时间。默认是0.5秒。
+        window (object, optional): 通过pygetwindow获取的窗口对象。如果未提供，则使用实例化时的窗口。
+        """
+        self._perform_gesture_action(points, duration, window)
+        
+    def _perform_action(self, action: str, x: int, y: int, window=None) -> None:
+        """
+        执行指定的鼠标操作。
+
+        参数:
+        action (str): 要执行的操作名称（如'click', 'doubleClick', 'moveTo', 'rightClick'）。
+        x (int): 相对于窗口左上角的X坐标。
+        y (int): 相对于窗口左上角的Y坐标。
+        window (object, optional): 通过pygetwindow获取的窗口对象。如果未提供，则使用实例化时的窗口。
+        """
+        target_window = window if window else self.window
+        if target_window:
+            target_window.activate()
+            window_left, window_top = target_window.left, target_window.top
+            getattr(pyautogui, action)(window_left + x, window_top + y)
+        else:
+            getattr(pyautogui, action)(x, y)
+    
+    def _perform_scroll_action(self, clicks: int, window=None) -> None:
+        """
+        执行滚动操作。
+
+        参数:
+        clicks (int): 滚动的行数。
+        window (object, optional): 通过pygetwindow获取的窗口对象。如果未提供，则使用实例化时的窗口。
+        """
+        target_window = window if window else self.window
+        if target_window:
+            target_window.activate()
+            pyautogui.scroll(clicks)
+        else:
+            pyautogui.scroll(clicks)
+    
+    def _perform_swipe_action(self, start_x: int, start_y: int, end_x: int, end_y: int, duration: float, window=None) -> None:
+        """
+        执行滑动操作。
+
+        参数:
+        start_x (int): 起始点相对于窗口左上角的X坐标。
+        start_y (int): 起始点相对于窗口左上角的Y坐标。
+        end_x (int): 终点相对于窗口左上角的X坐标。
+        end_y (int): 终点相对于窗口左上角的Y坐标。
+        duration (float): 滑动的持续时间。
+        window (object, optional): 通过pygetwindow获取的窗口对象。如果未提供，则使用实例化时的窗口。
+        """
+        target_window = window if window else self.window
+        if target_window:
+            target_window.activate()
+            window_left, window_top = target_window.left, target_window.top
+            pyautogui.moveTo(window_left + start_x, window_top + start_y)
+            pyautogui.dragTo(window_left + end_x, window_top + end_y, duration=duration)
+        else:
+            pyautogui.moveTo(start_x, start_y)
+            pyautogui.dragTo(end_x, end_y, duration=duration)
+
+    def _perform_gesture_action(self, points: list, duration: float, window=None) -> None:
+        """
+        执行手势操作。
+
+        参数:
+        points (list): 坐标点列表，每个点是一个元组 (x, y)。
+        duration (float): 每次移动的持续时间。
+        window (object, optional): 通过pygetwindow获取的窗口对象。如果未提供，则使用实例化时的窗口。
+        """
+        target_window = window if window else self.window
+        if target_window:
+            target_window.activate()
+            window_left, window_top = target_window.left, target_window.top
+            for (x, y) in points:
+                pyautogui.moveTo(window_left + x, window_top + y, duration=duration)
+        else:
+            for (x, y) in points:
+                pyautogui.moveTo(x, y, duration=duration)
+                
+    def _perform_long_click_action(self, x: int, y: int, duration: float, window=None) -> None:
+        """
+        执行长按操作。
+
+        参数:
+        x (int): 相对于窗口左上角的X坐标。
+        y (int): 相对于窗口左上角的Y坐标。
+        duration (float): 长按的持续时间。
+        window (object, optional): 通过pygetwindow获取的窗口对象。如果未提供，则使用实例化时的窗口。
+        """
+        target_window = window if window else self.window
+        if target_window:
+            target_window.activate()
+            window_left, window_top = target_window.left, target_window.top
+            pyautogui.mouseDown(window_left + x, window_top + y)
+            pyautogui.sleep(duration)
+            pyautogui.mouseUp(window_left + x, window_top + y)
+        else:
+            pyautogui.mouseDown(x, y)
+            pyautogui.sleep(duration)
+            pyautogui.mouseUp(x, y)
+
+if __name__ == "__main__":
+  # handler = WinHandler()
+  # handler.choose_window()
+  # handler.capture_screenshot("screenshot.png")
+  # ocr = Ocr()
+  # data = ocr.do_ocr("screenshot.png")
+  # search_results = ocr.search_text(data, "任务")
+  # x, y = search_results[0]['position']['c']
+  # operator = WinOperator()
+  # operator.click(x, y, handler.window)
+  
+  operator = WinOperator()
+  operator.click(10, 10)
