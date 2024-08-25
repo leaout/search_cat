@@ -4,6 +4,7 @@ typing
 matplotlib
 pillow
 numpy
+paddleocr
 paddlepaddle
 pygetwindow
 mss

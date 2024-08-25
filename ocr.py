@@ -7,7 +7,7 @@ import json
 from PIL import Image, ImageDraw, ImageFont
 import numpy as np
 from paddleocr import PaddleOCR
-
+import paddle
 
 class Ocr:
     def __init__(self) -> None:
@@ -254,6 +254,7 @@ class Ocr:
 
 
 if __name__ == "__main__":
+    print(paddle.__version__)
     ocr = Ocr()
     data = ocr.do_ocr("D:/gitpro/qs_search/screenshot.jpg")
     ocr.display_text_positions()
