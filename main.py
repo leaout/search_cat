@@ -4,6 +4,7 @@ from winoperator import WinOperator
 from winhandler import WindowHandler
 from fuzzywuzzy import process
 import json
+import os
 def find_best_match(properties, query):
     names =[prop['q'] for prop in properties]
     best_match = process.extractOne(query,names)
@@ -11,11 +12,13 @@ def find_best_match(properties, query):
         best_name = best_match[0]
         for prop in properties:
             if prop['q'] == best_name:
-                return prop['ans']
+                return prop
     return None
 
 
 def parse_json_lines(file_path):
+
+    #返回一个json列表
     json_list = []
     with open(file_path, 'r', encoding='utf-8') as file:
         for line in file:
@@ -44,14 +47,14 @@ def main():
         return True
     
 
-#     {"a":["对","错"],"ans":"A","q":"二郎神和四大天王奉命捉拿紫霞仙子?"}
-# {"a":["对","错"],"ans":"B","q":"水帘洞原本叫盘丝洞，是青霞把名字改了"}
-# {"a":["对","错"],"ans":"A","q":"盘丝洞原本叫水帘洞，是紫霞把名字改了"}
-# {"a":["对","错"],"ans":"A","q":"至尊宝无意间拔出了紫霞的紫青宝剑?"}
-    # 帮我实现打开文件，解析每一行数据是一个json，不是整个文件是json格式
     
-
-    results = parse_json_lines("database.json")
+    #遍历文件夹下所有文件，并返回文件路径
+    results = []
+    for root, dirs, files in os.walk("data"):
+        for file in files:
+            file_path = os.path.join(root, file)
+            result = parse_json_lines(file_path)
+            results.extend(result)
     
     while True:
         screenshot_path = handler.capture_screenshot("screenshot.png")
@@ -69,7 +72,7 @@ def main():
         #     ocr.crop_image("screenshot.png", "screenshot_2.png", x=0, y=(y-10) if (y-10)>0 else 10, width_ratio=1.0, height_ratio=0.1)
         question =''.join(ocr.do_ocr("screenshot.png",simple=True))
         answer = find_best_match(results, question)
-        print(f'{question} => {answer}')
+        print(f'{answer}')
         # if answer=='对'and correct_icon_p: operator.click(correct_icon_p[0], correct_icon_p[1])
         # elif answer=='错' and incorrect_icon_p: operator.click(incorrect_icon_p[0], incorrect_icon_p[1])
             
