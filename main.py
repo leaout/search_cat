@@ -5,6 +5,7 @@ from winhandler import WindowHandler
 from fuzzywuzzy import process
 import json
 import os
+
 def find_best_match(properties, query):
     names =[prop['q'] for prop in properties]
     best_match = process.extractOne(query,names)
@@ -31,14 +32,15 @@ def parse_json_lines(file_path):
                 print(e)
         return json_list
 
-    
+
     
 def main():
-    ocr = Ocr()
+
     handler = WindowHandler()
-    handler.choose_window()
+    # handler.select_screen_region()
     operator = WinOperator(handler.window)
-    
+    x1, y1, x2, y2 = operator.select_screen_region()
+    ocr = Ocr()
     def find_and_click(text):
         search_results = ocr.search_text(query=text)
         if len(search_results)== 0: return False
@@ -55,9 +57,9 @@ def main():
             file_path = os.path.join(root, file)
             result = parse_json_lines(file_path)
             results.extend(result)
-    
+
     while True:
-        screenshot_path = handler.capture_screenshot("screenshot.png")
+        screenshot_path = handler.capture_screenshot_ext(x1, y1, x2, y2, "screenshot.png")
         print(screenshot_path)
         # ocr.do_ocr(screenshot_path)
         # clock_head_p = ocr.multi_scale_template_match("screenshot.png","clock_head.png")

@@ -40,7 +40,7 @@ class WindowHandler:
         """
         windows = gw.getAllTitles()
         return [title for title in windows if title]  # 忽略空标题
-
+        
     def choose_window(self) -> None:
         """
         显示窗口选择对话框，供用户选择窗口。
@@ -103,6 +103,25 @@ class WindowHandler:
         self.window.activate()
         time.sleep(1)
         left, top, right, bottom = self.window.left, self.window.top, self.window.right, self.window.bottom
+        with mss.mss() as sct:
+            monitor = {"top": top, "left": left, "width": right-left, "height": bottom-top}
+            screenshot = sct.grab(monitor)
+            img = Image.frombytes("RGB", screenshot.size, screenshot.rgb)
+            # 保存截图
+            img.save(filename)
+        return filename
+    
+    def capture_screenshot_ext(self,x1,y1,x2,y2, filename: str = "screenshot.png") -> str:
+        """
+        捕获当前窗口的截图并保存为文件。
+
+        参数:
+        filename (str): 截图文件的保存路径。
+
+        返回:
+        str: 截图文件的保存路径。
+        """
+        left, top, right, bottom = x1, y1, x2, y2
         with mss.mss() as sct:
             monitor = {"top": top, "left": left, "width": right-left, "height": bottom-top}
             screenshot = sct.grab(monitor)

@@ -1,5 +1,7 @@
 from typing import Callable, Any, List, Tuple
 import pyautogui
+import cv2
+import numpy as np
 
 class WinOperator:
     def __init__(self, window=None):
@@ -197,6 +199,31 @@ class WinOperator:
             pyautogui.mouseDown(x, y)
             pyautogui.sleep(duration)
             pyautogui.mouseUp(x, y)
+            
+    def select_screen_region(self):
+        """
+        从桌面截图中选取一个块区域并返回坐标信息。
+
+        返回:
+        tuple: 包含左上角和右下角坐标的元组 (x1, y1, x2, y2)。
+        """
+        print("请选择屏幕区域，按下 Enter 键确认...")
+        screenshot = pyautogui.screenshot()
+        screenshot = cv2.cvtColor(np.array(screenshot), cv2.COLOR_RGB2BGR)
+
+        # 显示截图并让用户选择区域
+        roi = cv2.selectROI("选择屏幕区域", screenshot)
+        cv2.destroyWindow("选择屏幕区域")
+
+        if roi != (0, 0, 0, 0):
+            x, y, width, height = roi
+            x1, y1 = x, y
+            x2, y2 = x + width, y + height
+            print(f"选择的区域坐标: 左上角 (x1={x1}, y1={y1}), 右下角 (x2={x2}, y2={y2})")
+            return x1, y1, x2, y2
+        else:
+            print("未选择任何区域")
+            return None
 
 if __name__ == "__main__":
   # handler = WinHandler()
