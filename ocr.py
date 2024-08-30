@@ -192,6 +192,7 @@ class Ocr:
         """
         data = data if data else self.data
         res = []
+        if data is None: return res
         for item in data:
             text = str(item[1][0])  # 确保 text 是字符串类型
             points = item[0]
