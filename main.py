@@ -74,7 +74,7 @@ def main():
         #     ocr.crop_image("screenshot.png", "screenshot_2.png", x=0, y=(y-10) if (y-10)>0 else 10, width_ratio=1.0, height_ratio=0.1)
         question =''.join(ocr.do_ocr("screenshot.png",simple=True))
         answer = find_best_match(results, question)
-        print(f'{answer}')
+        print(answer['q'] + ' ---> ' +answer['ans'])
         # if answer=='对'and correct_icon_p: operator.click(correct_icon_p[0], correct_icon_p[1])
         # elif answer=='错' and incorrect_icon_p: operator.click(incorrect_icon_p[0], incorrect_icon_p[1])
             
