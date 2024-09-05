@@ -10,6 +10,8 @@ def find_best_match(properties, query):
     names =[prop['q'] for prop in properties]
     best_match = process.extractOne(query,names)
     if best_match:
+        if best_match[1] == 0:
+            return None
         best_name = best_match[0]
         for prop in properties:
             if prop['q'] == best_name:
@@ -59,25 +61,18 @@ def main():
             results.extend(result)
 
     while True:
+        
         screenshot_path = handler.capture_screenshot_ext(x1, y1, x2, y2, "screenshot.png")
-        print(screenshot_path)
-        # ocr.do_ocr(screenshot_path)
-        # clock_head_p = ocr.multi_scale_template_match("screenshot.png","clock_head.png")
-        # btn_confirm_p = ocr.multi_scale_template_match("screenshot.png","btn_confirm.png")
-        # correct_icon_p = ocr.multi_scale_template_match("screenshot,png", "correct_icon.png")
-        # incorrect_icon_p = ocr.multi_scale_template_match("screenshot.png", "incorrect_icon.png")
-
-        # if btn_confirm_p: operator.click(btn_confirm_p[0], btn_confirm_p[1])
-        # elif ocr.exists_text("答题"): find_and_click("答题")
-        # elif clock_head_p:
-        #     y= clock_head_p[1]
-        #     ocr.crop_image("screenshot.png", "screenshot_2.png", x=0, y=(y-10) if (y-10)>0 else 10, width_ratio=1.0, height_ratio=0.1)
+        #ocr
         question =''.join(ocr.do_ocr("screenshot.png",simple=True))
+        if len(question)==0: 
+            time.sleep(1)
+            continue
         answer = find_best_match(results, question)
-        print(answer['q'] + ' ---> ' +answer['ans'])
-        # if answer=='对'and correct_icon_p: operator.click(correct_icon_p[0], correct_icon_p[1])
-        # elif answer=='错' and incorrect_icon_p: operator.click(incorrect_icon_p[0], incorrect_icon_p[1])
-            
+        if answer is not None:
+            print(answer['q'] + ' ---> ' +answer['ans'])
+        else:
+            print("No match found")
         time.sleep(1)
         
 if __name__ == "__main__":
