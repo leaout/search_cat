@@ -62,9 +62,9 @@ def main():
 
     while True:
         
-        screenshot_path = handler.capture_screenshot_ext(x1, y1, x2, y2, "screenshot.png")
+        screenshot_data = handler.capture_screenshot_ext(x1, y1, x2, y2)
         #ocr
-        question =''.join(ocr.do_ocr("screenshot.png",simple=True))
+        question =''.join(ocr.do_ocr_ext(screenshot_data,simple=True))
         if len(question)==0: 
             time.sleep(1)
             continue

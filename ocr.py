@@ -105,6 +105,12 @@ class Ocr:
         self.data = data
         return data
     
+    def do_ocr_ext(self, img_data, simple=False) -> List:
+        data = self.ocr.ocr(img_data, cls=False)[0]
+        if simple: return self.get_all_text(data)
+        self.data = data
+        return data
+    
     def search_text(self, query: str, data: List[List[Any]] = None, threshold: float = 0.6) -> List[Tuple[str, Any]]:
         """
         在OCR识别结果中搜索与query最相似的文本项，并按照相似度排序。

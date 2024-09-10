@@ -1,10 +1,12 @@
 from typing import Callable, Any, List
+from numpy import ndarray
 import pygetwindow as gw
 from PIL import Image
 import mss
 import time
 import tkinter as tk
 from tkinter import ttk, messagebox
+import numpy as np
 
 def require_window(method: Callable) -> Callable:
     """
@@ -111,24 +113,22 @@ class WindowHandler:
             img.save(filename)
         return filename
     
-    def capture_screenshot_ext(self,x1,y1,x2,y2, filename: str = "screenshot.png") -> str:
+    def capture_screenshot_ext(self,x1,y1,x2,y2) -> ndarray:
         """
         捕获当前窗口的截图并保存为文件。
 
-        参数:
-        filename (str): 截图文件的保存路径。
-
-        返回:
-        str: 截图文件的保存路径。
         """
         left, top, right, bottom = x1, y1, x2, y2
         with mss.mss() as sct:
             monitor = {"top": top, "left": left, "width": right-left, "height": bottom-top}
+            
             screenshot = sct.grab(monitor)
             img = Image.frombytes("RGB", screenshot.size, screenshot.rgb)
-            # 保存截图
-            img.save(filename)
-        return filename
+            img_array = np.array(img)
+            return img_array
+            
+
+        return None
 
     @require_window
     def move_and_resize_window(self, x: int, y: int, width: int, height: int) -> None:
