@@ -10,7 +10,8 @@ def find_best_match(properties, query):
     names =[prop['q'] for prop in properties]
     best_match = process.extractOne(query,names)
     if best_match:
-        if best_match[1] == 0:
+        similarity = best_match[1]
+        if similarity < 30:
             return None
         best_name = best_match[0]
         for prop in properties:
@@ -59,21 +60,21 @@ def main():
             file_path = os.path.join(root, file)
             result = parse_json_lines(file_path)
             results.extend(result)
-
+    time_delay = 0.5
     while True:
         
         screenshot_data = handler.capture_screenshot_ext(x1, y1, x2, y2)
         #ocr
         question =''.join(ocr.do_ocr_ext(screenshot_data,simple=True))
         if len(question)==0: 
-            time.sleep(1)
+            time.sleep(time_delay)
             continue
         answer = find_best_match(results, question)
         if answer is not None:
             print(answer['q'] + ' ---> ' +answer['ans'])
         else:
             print("No match found")
-        time.sleep(1)
+        time.sleep(time_delay)
         
 if __name__ == "__main__":
     main()

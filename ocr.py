@@ -11,7 +11,7 @@ import paddle
 
 class Ocr:
     def __init__(self) -> None:
-        self.ocr = PaddleOCR()
+        self.ocr = PaddleOCR(show_log=False)
         self.data = None  # 存储OCR识别结果
 
     def multi_scale_template_match(self, main_image_path, template_image_path, method=cv2.TM_CCOEFF_NORMED, threshold=0.6, show=False):
