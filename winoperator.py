@@ -237,4 +237,6 @@ if __name__ == "__main__":
   # operator.click(x, y, handler.window)
   
   operator = WinOperator()
-  operator.click(10, 10)
+  while True:
+      x, y = pyautogui.position()
+      operator.click(x, y)
