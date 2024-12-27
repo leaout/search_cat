@@ -210,10 +210,13 @@ class WinOperator:
         print("请选择屏幕区域，按下 Enter 键确认...")
         screenshot = pyautogui.screenshot()
         screenshot = cv2.cvtColor(np.array(screenshot), cv2.COLOR_RGB2BGR)
-
-        # 显示截图并让用户选择区域
-        roi = cv2.selectROI("选择屏幕区域", screenshot)
-        cv2.destroyWindow("选择屏幕区域")
+        
+        # 创建一个与截图相同大小的透明蒙版
+        overlay = screenshot.copy()
+        cv2.addWeighted(overlay, 0.6, screenshot, 0.2, 0, overlay)  # 设置透明度
+        # 显示截图并让用户选择区域，并且取消边框
+        roi = cv2.selectROI("select screen region", overlay)
+        cv2.destroyWindow("select screen region")
 
         if roi != (0, 0, 0, 0):
             x, y, width, height = roi
@@ -224,6 +227,18 @@ class WinOperator:
         else:
             print("未选择任何区域")
             return None
+    def click_trueorfalse(self,text, window=None):
+        if window is None:
+            window=self.window
+        left, top, right, bottom = window.left, window.top, window.right, window.bottom
+        true_x=(right-left)*130/527 
+        true_y=(bottom-top)*785/970
+        false_x=(right-left)*365/527 
+        false_y=(bottom-top)*785/970
+        if text == 'A':
+            self.click(true_x,true_y,window)
+        elif text == 'B':
+            self.click(false_x,false_y,window)
 
 if __name__ == "__main__":
   # handler = WinHandler()

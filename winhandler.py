@@ -112,6 +112,38 @@ class WindowHandler:
             # 保存截图
             img.save(filename)
         return filename
+    @require_window
+    def capture_question_screenshot(self) -> ndarray:
+        """
+        捕获当前窗口的截图并保存为文件。
+
+        参数:
+        filename (str): 截图文件的保存路径。
+
+        返回:
+        str: 截图文件的保存路径。
+        """
+        # self.window.activate()
+        # time.sleep(0.5)
+        # y1 =105/970 y2=265/970 x1=left x2=bottom
+        x1 = self.window.left
+        y1 = 105/970*(self.window.bottom - self.window.top)
+        x2 = self.window.right
+        y2 = 265/970*(self.window.bottom - self.window.top)
+        x1 = int(x1)
+        y1 = int(y1)
+        x2 = int(x2)
+        y2 = int(y2)
+        # left, top, right, bottom = self.window.left, self.window.top, self.window.right, self.window.bottom
+        with mss.mss() as sct:
+            monitor = {"top": y1, "left": x1, "width": x2-x1, "height": y2-y1}
+            
+            screenshot = sct.grab(monitor)
+            img = Image.frombytes("RGB", screenshot.size, screenshot.rgb)
+            img.save("test.png")
+            img_array = np.array(img)
+            return img_array
+        return None
     
     def capture_screenshot_ext(self,x1,y1,x2,y2) -> ndarray:
         """
