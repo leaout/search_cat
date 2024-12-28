@@ -140,7 +140,7 @@ class WindowHandler:
             
             screenshot = sct.grab(monitor)
             img = Image.frombytes("RGB", screenshot.size, screenshot.rgb)
-            img.save("test.png")
+            # img.save("test.png")
             img_array = np.array(img)
             return img_array
         return None
