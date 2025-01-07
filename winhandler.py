@@ -147,7 +147,7 @@ class WindowHandler:
     
     def capture_screenshot_ext(self,x1,y1,x2,y2) -> ndarray:
         """
-        捕获当前窗口的截图并保存为文件。
+        捕获当前窗口的截图并返回ndarray。
 
         """
         left, top, right, bottom = x1, y1, x2, y2
