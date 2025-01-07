@@ -22,6 +22,9 @@ class WinOperator:
         y (int): 相对于窗口左上角的Y坐标。
         window (object, optional): 通过pygetwindow获取的窗口对象。如果未提供，则使用实例化时的窗口。
         """
+        # 确保坐标值为整数
+        x = int(round(x))
+        y = int(round(y))
         self._perform_action('click', x, y, window)
 
     def double_click(self, x: int, y: int, window=None) -> None:
@@ -227,18 +230,38 @@ class WinOperator:
         else:
             print("未选择任何区域")
             return None
-    def click_trueorfalse(self,text, window=None):
+    def click_trueorfalse(self, text, window=None):
+        """点击真/假按钮
+        
+        参数:
+        text (str): 'A' 表示真，'B' 表示假
+        window (object, optional): 通过pygetwindow获取的窗口对象
+        """
         if window is None:
-            window=self.window
-        left, top, right, bottom = window.left, window.top, window.right, window.bottom
-        true_x=(right-left)*130/527 
-        true_y=(bottom-top)*785/970
-        false_x=(right-left)*365/527 
-        false_y=(bottom-top)*785/970
-        if text == 'A':
-            self.click(true_x,true_y,window)
-        elif text == 'B':
-            self.click(false_x,false_y,window)
+            window = self.window
+            
+        if window is None:
+            raise ValueError("未选择目标窗口")
+            
+        try:
+            window.activate()
+            left, top, right, bottom = window.left, window.top, window.right, window.bottom
+            
+            # 计算按钮坐标并转换为整数
+            true_x = int((right - left) * 130 / 527)
+            true_y = int((bottom - top) * 785 / 970)
+            false_x = int((right - left) * 365 / 527)
+            false_y = int((bottom - top) * 785 / 970)
+            
+            if text == 'A':
+                self.click(true_x, true_y, window)
+            elif text == 'B':
+                self.click(false_x, false_y, window)
+            else:
+                raise ValueError(f"无效的选项: {text}")
+                
+        except Exception as e:
+            raise RuntimeError(f"点击操作失败: {str(e)}")
 
 if __name__ == "__main__":
   # handler = WinHandler()

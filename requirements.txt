@@ -1,11 +1,1 @@
-pyautogui
-opencv-python
-typing
-matplotlib
-pillow
-numpy
-paddleocr
-paddlepaddle
-pygetwindow
-mss
-FuzzyWuzzy
+PyQt5==5.15.9
