@@ -1,1 +1,12 @@
 PyQt5==5.15.9
+pyautogui
+opencv-python
+typing
+matplotlib
+pillow
+numpy
+paddleocr
+paddlepaddle
+pygetwindow
+mss
+FuzzyWuzzy
