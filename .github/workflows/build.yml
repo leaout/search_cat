@@ -38,7 +38,7 @@ jobs:
         
     - name: Build with PyInstaller
       run: |
-        pyinstaller gui.spec --noconfirm
+        pyinstaller gui.spec --noconfirm --exclude-module typing
 
     - name: Package artifacts
       run: |
