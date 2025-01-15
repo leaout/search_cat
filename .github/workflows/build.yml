@@ -24,9 +24,17 @@ jobs:
         pip install -r requirements.txt
         pip install pyinstaller
 
+    - name: Check for typing package
+      run: |
+        python -m pip show typing || echo "typing package not found"
+        
     - name: Remove typing package
       run: |
-        python -m pip uninstall -y typing
+        python -m pip uninstall -y typing || echo "Failed to uninstall typing package"
+        
+    - name: Verify typing removal
+      run: |
+        python -m pip show typing && exit 1 || echo "typing package successfully removed"
         
     - name: Build with PyInstaller
       run: |
