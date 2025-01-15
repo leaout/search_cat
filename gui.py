@@ -89,6 +89,7 @@ class QSearchApp(QMainWindow):
             self.start_btn.setEnabled(True)
             self.operator = WinOperator(self.handler.window)
         except Exception as e:
+            self.start_btn.setEnabled(True)
             self.window_label.setText("窗口选择失败")
             self.result_display.append(f"窗口选择错误: {str(e)}\n")
 
