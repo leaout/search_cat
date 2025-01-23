@@ -101,6 +101,8 @@ class QSearchApp(QMainWindow):
             
         screenshot_data = self.handler.capture_question_screenshot()
         question = ''.join(self.ocr.do_ocr_ext(screenshot_data, simple=True))
+        #移除：咸鱼游戏
+        question = question.replace("咸鱼游戏", "")
         
         if len(question) == 0:
             return
