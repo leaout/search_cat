@@ -5,8 +5,11 @@ typing
 matplotlib
 pillow
 numpy
+setuptools
 paddleocr
 paddlepaddle
 pygetwindow
 mss
 FuzzyWuzzy
+tk
+keyboard

@@ -2,6 +2,7 @@ from typing import Callable, Any, List, Tuple
 import pyautogui
 import cv2
 import numpy as np
+import threading
 
 class WinOperator:
     def __init__(self, window=None):
@@ -262,6 +263,28 @@ class WinOperator:
                 
         except Exception as e:
             raise RuntimeError(f"点击操作失败: {str(e)}")
+
+class MouseClicker:
+    def __init__(self, interval=0.1):
+        self.interval = interval
+        self.is_clicking = False
+        self.click_thread = None
+
+    def start_clicking(self):
+        if not self.is_clicking:
+            self.is_clicking = True
+            self.click_thread = threading.Thread(target=self._click_loop)
+            self.click_thread.start()
+
+    def stop_clicking(self):
+        self.is_clicking = False
+        if self.click_thread:
+            self.click_thread.join()
+
+    def _click_loop(self):
+        while self.is_clicking:
+            pyautogui.click()
+            pyautogui.PAUSE = self.interval
 
 if __name__ == "__main__":
   # handler = WinHandler()
