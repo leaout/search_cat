@@ -2,7 +2,7 @@ from PyQt5.QtWidgets import (QApplication, QMainWindow, QPushButton,
                             QTextEdit, QLabel, QVBoxLayout, QWidget,
                             QHBoxLayout,QComboBox)
 from PyQt5.QtCore import Qt,QTimer
-from PyQt5.QtGui import QKeySequence
+from PyQt5.QtGui import QIcon
 import sys
 from main import WindowHandler, Ocr, WinOperator, find_best_match, parse_json_lines
 from winoperator import MouseClicker
@@ -22,6 +22,9 @@ class QSearchApp(QMainWindow):
         self.answer_set = []
         for root, dirs, files in os.walk("data"):
             for file in files:
+                #filter txt file
+                if not file.endswith(".txt"):
+                    continue
                 file_path = os.path.join(root, file)
                 result = parse_json_lines(file_path)
                 self.answer_set.extend(result)
@@ -37,9 +40,11 @@ class QSearchApp(QMainWindow):
         keyboard.add_hotkey('ctrl+q', self.toggle_clicker)
 
     def init_ui(self):
-        self.setWindowTitle('QSearch - 自动答题助手')
+        self.setWindowTitle('Search Cat')
         self.setGeometry(100, 100, 800, 600)
         
+        # 设置窗口图标
+        self.setWindowIcon(QIcon('data/icon.png'))  # 加载图标文件
         # 主布局
         main_layout = QVBoxLayout()
         
