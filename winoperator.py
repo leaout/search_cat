@@ -269,6 +269,16 @@ class MouseClicker:
         self.interval = interval
         self.is_clicking = False
         self.click_thread = None
+        self.click_type = 'left'  # 默认左键点击
+
+    def set_click_type(self, click_type):
+        """设置点击类型
+        参数:
+            click_type (str): 'left' 左键, 'right' 右键
+        """
+        if click_type not in ['left', 'right']:
+            raise ValueError("无效的点击类型，必须是'left'或'right'")
+        self.click_type = click_type
 
     def start_clicking(self):
         if not self.is_clicking:
@@ -283,7 +293,10 @@ class MouseClicker:
 
     def _click_loop(self):
         while self.is_clicking:
-            pyautogui.click()
+            if self.click_type == 'left':
+                pyautogui.click()
+            else:
+                pyautogui.rightClick()
             pyautogui.PAUSE = self.interval
 
 if __name__ == "__main__":
