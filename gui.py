@@ -44,7 +44,7 @@ class QSearchApp(QMainWindow):
         self.setGeometry(100, 100, 800, 600)
         
         # 设置窗口图标
-        self.setWindowIcon(QIcon('data/icon.png'))  # 加载图标文件
+        self.setWindowIcon(QIcon('icon/icon.png'))  # 加载图标文件
         # 主布局
         main_layout = QVBoxLayout()
         
