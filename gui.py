@@ -1,122 +1,79 @@
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QPushButton, 
                             QTextEdit, QLabel, QVBoxLayout, QWidget,
                             QHBoxLayout,QComboBox)
-from PyQt5.QtCore import Qt,QTimer
+from PyQt5.QtCore import QTimer
 from PyQt5.QtGui import QIcon
 import sys
+import os
+import keyboard
 from main import WindowHandler, Ocr, WinOperator, find_best_match, parse_json_lines
 from winoperator import MouseClicker
-import os
-import keyboard  
-  
-class QSearchApp(QMainWindow):
+
+class BaseGUI(QMainWindow):
     def __init__(self):
         super().__init__()
+        self.init_ui()
         
-        # 初始化组件
+    def init_ui(self):
+        self.setWindowTitle('Search Cat')
+        self.setGeometry(100, 100, 800, 600)
+        self.setWindowIcon(QIcon('icon/icon.png'))
+        
+        # Main layout
+        self.main_layout = QVBoxLayout()
+        
+        # Container widget
+        container = QWidget()
+        container.setLayout(self.main_layout)
+        self.setCentralWidget(container)
+
+class OCRFeature:
+    def __init__(self, parent):
+        self.parent = parent
         self.handler = WindowHandler()
-        self.ocr = Ocr()
         self.operator = None
-        
-        # 加载答案数据
         self.answer_set = []
+        self.load_answers()
+        self.timer = QTimer()
+        self.timer.timeout.connect(self.process_screenshot)
+        self.is_running = False
+        self.ocr = Ocr()
+        
+    def load_answers(self):
         for root, dirs, files in os.walk("data"):
             for file in files:
-                #filter txt file
                 if not file.endswith(".txt"):
                     continue
                 file_path = os.path.join(root, file)
                 result = parse_json_lines(file_path)
                 self.answer_set.extend(result)
-        
-        # 初始化鼠标连点器
-        self.mouse_clicker = MouseClicker()
-        
-        self.init_ui()
-        self.timer = QTimer()
-        self.timer.timeout.connect(self.process_screenshot)
-        self.is_running = False
-        # 注册全局快捷键
-        keyboard.add_hotkey('ctrl+q', self.toggle_clicker)
-
+                
     def init_ui(self):
-        self.setWindowTitle('Search Cat')
-        self.setGeometry(100, 100, 800, 600)
-        
-        # 设置窗口图标
-        self.setWindowIcon(QIcon('icon/icon.png'))  # 加载图标文件
-        # 主布局
-        main_layout = QVBoxLayout()
-        
-        # 控制按钮
+        # OCR specific UI components
         btn_layout = QHBoxLayout()
         
-        # 窗口选择
         self.window_btn = QPushButton('选择窗口')
         self.window_btn.clicked.connect(self.choose_window)
         btn_layout.addWidget(self.window_btn)
         
-        # 窗口信息显示
         self.window_label = QLabel('未选择窗口')
         btn_layout.addWidget(self.window_label)
         
-        # 开始/停止按钮
         self.start_btn = QPushButton('开始')
         self.start_btn.clicked.connect(self.toggle_process)
-        self.start_btn.setEnabled(False)  # 未选择窗口时禁用
+        self.start_btn.setEnabled(False)
         btn_layout.addWidget(self.start_btn)
         
-        # 状态显示
         self.status_label = QLabel('状态: 停止')
         btn_layout.addWidget(self.status_label)
         
-        main_layout.addLayout(btn_layout)
+        self.parent.main_layout.addLayout(btn_layout)
         
-        # 鼠标连点器控制
-        clicker_control_layout = QHBoxLayout()
-        
-        # 点击类型选择
-        self.click_type_combo = QComboBox()
-        self.click_type_combo.addItems(['左键', '右键'])
-        self.click_type_combo.currentTextChanged.connect(self.change_click_type)
-        clicker_control_layout.addWidget(QLabel('点击类型:'))
-        clicker_control_layout.addWidget(self.click_type_combo)
-        
-        self.clicker_btn = QPushButton('ctrl+q 启动')
-        self.clicker_btn.clicked.connect(self.toggle_clicker)
-        clicker_control_layout.addWidget(self.clicker_btn)
-        
-        self.clicker_status_label = QLabel('鼠标连点器: 关闭')
-        clicker_control_layout.addWidget(self.clicker_status_label)
-        
-        main_layout.addLayout(clicker_control_layout)
-        
-        # 结果显示
         self.result_display = QTextEdit()
         self.result_display.setReadOnly(True)
-        main_layout.addWidget(self.result_display)
-        
-        # 设置主窗口布局
-        container = QWidget()
-        container.setLayout(main_layout)
-        self.setCentralWidget(container)
-        
-        # 添加快捷键
-        # keyboard.add_hotkey('ctrl+q', self.toggle_clicker)
-
-    def toggle_process(self):
-        if self.is_running:
-            self.timer.stop()
-            self.start_btn.setText('开始')
-            self.status_label.setText('状态: 停止')
-        else:
-            self.timer.start(500)  # 每500ms处理一次
-            self.start_btn.setText('停止')
-            self.status_label.setText('状态: 运行中')
-        self.is_running = not self.is_running
+        self.parent.main_layout.addWidget(self.result_display)
 
     def choose_window(self):
-        """处理窗口选择"""
         try:
             self.handler.choose_window()
             self.handler.move_and_resize_window(1390, 10, 527, 970)
@@ -128,15 +85,25 @@ class QSearchApp(QMainWindow):
             self.window_label.setText("窗口选择失败")
             self.result_display.append(f"窗口选择错误: {str(e)}\n")
 
+    def toggle_process(self):
+        if self.is_running:
+            self.timer.stop()
+            self.start_btn.setText('开始')
+            self.status_label.setText('状态: 停止')
+        else:
+            self.timer.start(500)
+            self.start_btn.setText('停止')
+            self.status_label.setText('状态: 运行中')
+        self.is_running = not self.is_running
+
     def process_screenshot(self):
         if self.operator is None:
             self.result_display.append("请先选择目标窗口\n")
-            self.toggle_process()  # 自动停止
+            self.toggle_process()
             return
             
         screenshot_data = self.handler.capture_question_screenshot()
         question = ''.join(self.ocr.do_ocr_ext(screenshot_data, simple=True))
-        #移除：咸鱼游戏
         question = question.replace("咸鱼游戏", "")
         
         if len(question) == 0:
@@ -150,8 +117,32 @@ class QSearchApp(QMainWindow):
         else:
             self.result_display.append("未找到匹配答案\n")
 
+class MouseClickerFeature:
+    def __init__(self, parent):
+        self.parent = parent
+        self.mouse_clicker = MouseClicker()
+        
+    def init_ui(self):
+        clicker_control_layout = QHBoxLayout()
+        
+        self.click_type_combo = QComboBox()
+        self.click_type_combo.addItems(['左键', '右键'])
+        self.click_type_combo.currentTextChanged.connect(self.change_click_type)
+        clicker_control_layout.addWidget(QLabel('点击类型:'))
+        clicker_control_layout.addWidget(self.click_type_combo)
+        
+        self.clicker_btn = QPushButton('ctrl+q 启动')
+        self.clicker_btn.clicked.connect(self.toggle_clicker)
+        clicker_control_layout.addWidget(self.clicker_btn)
+        
+        self.clicker_status_label = QLabel('鼠标连点器: 关闭')
+        clicker_control_layout.addWidget(self.clicker_status_label)
+        
+        self.parent.main_layout.addLayout(clicker_control_layout)
+        
+        keyboard.add_hotkey('ctrl+q', self.toggle_clicker)
+
     def change_click_type(self, text):
-        """处理点击类型选择"""
         click_type = 'left' if text == '左键' else 'right'
         self.mouse_clicker.set_click_type(click_type)
 
@@ -164,6 +155,14 @@ class QSearchApp(QMainWindow):
             self.mouse_clicker.start_clicking()
             self.clicker_btn.setText('ctrl+q 停止')
             self.clicker_status_label.setText('鼠标连点器: 运行中')
+
+class QSearchApp(BaseGUI):
+    def __init__(self):
+        super().__init__()
+        self.ocr_feature = OCRFeature(self)
+        self.clicker_feature = MouseClickerFeature(self)
+        self.ocr_feature.init_ui()
+        self.clicker_feature.init_ui()
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)
