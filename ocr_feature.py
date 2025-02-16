@@ -1,10 +1,27 @@
-from PyQt5.QtWidgets import (QPushButton, QLabel, QVBoxLayout, 
-                            QHBoxLayout, QTextEdit)
-from PyQt5.QtCore import QTimer
+from PyQt5.QtWidgets import (QPushButton, QLabel, QVBoxLayout,
+                            QHBoxLayout, QTextEdit, QWidget)
+from PyQt5.QtCore import Qt,QTimer
 import os
 import keyboard
 from main import WindowHandler, Ocr, WinOperator, find_best_match, parse_json_lines
 import threading
+from PyQt5.QtCore import pyqtSignal
+
+class FloatingWindow(QWidget):
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("OCR结果")
+        self.setWindowFlags(Qt.WindowStaysOnTopHint | Qt.FramelessWindowHint)
+        self.setGeometry(100, 100, 400, 300)
+        
+        layout = QVBoxLayout()
+        self.text_edit = QTextEdit()
+        self.text_edit.setReadOnly(True)
+        layout.addWidget(self.text_edit)
+        
+        self.setLayout(layout)
+        
 
 class OCRFeature:
     def __init__(self, parent):
@@ -12,6 +29,7 @@ class OCRFeature:
         self.handler = WindowHandler()
         self.operator = None
         self.answer_set = []
+        self.floating_window = None
         self.load_answers()
         self.timer = QTimer()
         self.timer.timeout.connect(self.process_screenshot)
@@ -74,12 +92,18 @@ class OCRFeature:
         
     def toggle_process(self):
         if self.is_running:
+            self.timer.stop()
             self.start_btn.setText('开始/F1')
             self.status_label.setText('状态: 停止')
             self.is_running = False
+            if self.floating_window:
+                self.floating_window.close()
         else:
             self.is_running = True
-            self.repeat_function(0.5)
+            self.floating_window = FloatingWindow()
+            self.floating_window.show()
+            # self.repeat_function(0.5)
+            self.timer.start(500)
             self.start_btn.setText('停止/F1')
             self.status_label.setText('状态: 运行中')
 
@@ -101,6 +125,15 @@ class OCRFeature:
         if answer is not None:
             result_text = f"{answer['q']} ---> {answer['ans']}\n"
             self.result_display.append(result_text)
+            self.result_display.setFocus()
+            if self.floating_window:
+                self.floating_window.text_edit.append(result_text)
+                self.floating_window.text_edit.setFocus()
             self.operator.click_trueorfalse(answer['ans'])
         else:
-            self.result_display.append("未找到匹配答案\n")
+            error_text = "未找到匹配答案\n"
+            self.result_display.append(error_text)
+            if self.floating_window:
+                self.floating_window.text_edit.append(error_text)
+                self.floating_window.text_edit.setFocus()
+                pass
