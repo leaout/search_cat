@@ -13,3 +13,7 @@ mss
 FuzzyWuzzy
 tk
 keyboard
+SpeechRecognition
+pyaudio
+langchain
+openai
