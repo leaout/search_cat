@@ -16,4 +16,5 @@ keyboard
 SpeechRecognition
 pyaudio
 langchain
+langchain_community
 openai

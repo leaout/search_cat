@@ -3,10 +3,42 @@ from PyQt5.QtWidgets import (QPushButton, QLabel, QVBoxLayout,
 from PyQt5.QtCore import Qt,QTimer
 import os
 import keyboard
-from main import WindowHandler, Ocr, WinOperator, find_best_match, parse_json_lines
 import threading
-from PyQt5.QtCore import pyqtSignal
+from core.ocr import Ocr
+from core.winoperator import WinOperator
+from core.winhandler import WindowHandler
+from fuzzywuzzy import process
+import json
 
+def find_best_match(properties, query):
+    names =[prop['q'] for prop in properties]
+    best_match = process.extractOne(query,names)
+    if best_match:
+        similarity = best_match[1]
+        if similarity < 40:
+            return None
+        best_name = best_match[0]
+        for prop in properties:
+            if prop['q'] == best_name:
+                return prop
+    return None
+
+
+def parse_json_lines(file_path):
+
+    #返回一个json列表
+    json_list = []
+    with open(file_path, 'r', encoding='utf-8') as file:
+        for line in file:
+            try:
+                json_data = json.loads(line)
+                json_list.append(json_data)
+                # yield json_data
+            except json.JSONDecodeError as e:
+                print(f"Error parsing JSON on line: {line}")
+                print(e)
+        return json_list
+    
 class FloatingWindow(QWidget):
 
     def __init__(self, parent=None):

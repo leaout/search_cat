@@ -1,6 +1,6 @@
 from PyQt5.QtWidgets import (QPushButton, QLabel, QHBoxLayout, QComboBox)
 import keyboard
-from winoperator import MouseClicker
+from core.winoperator import MouseClicker
 
 class MouseClickerFeature:
     def __init__(self, parent):

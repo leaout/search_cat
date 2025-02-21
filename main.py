@@ -1,7 +1,7 @@
 import time
-from ocr import Ocr
-from winoperator import WinOperator
-from winhandler import WindowHandler
+from core.ocr import Ocr
+from core.winoperator import WinOperator
+from core.winhandler import WindowHandler
 from fuzzywuzzy import process
 import json
 import os

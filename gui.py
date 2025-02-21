@@ -3,8 +3,8 @@ from PyQt5.QtWidgets import (QApplication, QMainWindow, QVBoxLayout,
 from PyQt5.QtCore import Qt,QMetaObject,QObject, Q_ARG
 from PyQt5.QtGui import QIcon
 import sys
-from ocr_feature import OCRFeature
-from mouse_clicker_feature import MouseClickerFeature
+from feature.ocr_feature import OCRFeature
+from feature.mouse_clicker_feature import MouseClickerFeature
 
 class BaseGUI(QMainWindow):
     def __init__(self):
