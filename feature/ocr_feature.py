@@ -1,6 +1,6 @@
 from PyQt5.QtWidgets import (QPushButton, QLabel, QVBoxLayout,
                             QHBoxLayout, QTextEdit, QWidget)
-from PyQt5.QtCore import Qt,QTimer
+from PyQt5.QtCore import Qt,QTimer,QObject,pyqtSignal  
 import os
 import keyboard
 import threading
@@ -55,8 +55,11 @@ class FloatingWindow(QWidget):
         self.setLayout(layout)
         
 
-class OCRFeature:
+class OCRFeature(QObject):
+    hotkey_triggered = pyqtSignal()  # 定义信号
+    
     def __init__(self, parent):
+        super().__init__(parent)  # 初始化 QObject
         self.parent = parent
         self.handler = WindowHandler()
         self.operator = None
@@ -67,6 +70,9 @@ class OCRFeature:
         self.timer.timeout.connect(self.process_screenshot)
         self.is_running = False
         self.ocr = Ocr()
+        
+        # 连接信号到槽
+        self.hotkey_triggered.connect(self.toggle_process)
         
     def load_answers(self):
         for root, dirs, files in os.walk("data"):
@@ -102,9 +108,13 @@ class OCRFeature:
         self.result_display.setReadOnly(True)
         self.parent.ocr_layout.addWidget(self.result_display)
         
-        keyboard.add_hotkey('F1', self.toggle_process)
+        # keyboard.add_hotkey('F1', self.toggle_process)
+        keyboard.add_hotkey('F1', self.emit_hotkey_signal)
         
-
+    def emit_hotkey_signal(self):
+        """从任何线程安全地发射信号"""
+        self.hotkey_triggered.emit()
+        
     def choose_window(self):
         try:
             self.handler.choose_window()
