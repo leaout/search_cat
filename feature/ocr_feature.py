@@ -25,19 +25,29 @@ def find_best_match(properties, query):
 
 
 def parse_json_lines(file_path):
-
-    #返回一个json列表
+    """Parse JSON file that may be either:
+    1. One JSON object per line (old format)
+    2. A single JSON array containing all questions (new format)
+    """
     json_list = []
     with open(file_path, 'r', encoding='utf-8') as file:
-        for line in file:
-            try:
-                json_data = json.loads(line)
-                json_list.append(json_data)
-                # yield json_data
-            except json.JSONDecodeError as e:
-                print(f"Error parsing JSON on line: {line}")
-                print(e)
-        return json_list
+        content = file.read()
+        try:
+            # First try parsing as single JSON array
+            data = json.loads(content)
+            if isinstance(data, list):
+                return data
+        except json.JSONDecodeError:
+            # Fall back to line-by-line parsing
+            file.seek(0)
+            for line in file:
+                try:
+                    json_data = json.loads(line)
+                    json_list.append(json_data)
+                except json.JSONDecodeError as e:
+                    print(f"Error parsing JSON on line: {line}")
+                    print(e)
+    return json_list
     
 class FloatingWindow(QWidget):
 
@@ -67,6 +77,7 @@ class OCRFeature:
         self.timer.timeout.connect(self.process_screenshot)
         self.is_running = False
         self.ocr = Ocr()
+        self.selected_region = None  # Store selected screen region coordinates
         
     def load_answers(self):
         for root, dirs, files in os.walk("data"):
@@ -87,6 +98,13 @@ class OCRFeature:
         
         self.window_label = QLabel('未选择窗口')
         btn_layout.addWidget(self.window_label)
+
+        self.region_btn = QPushButton('选择区域')
+        self.region_btn.clicked.connect(self.choose_region)
+        btn_layout.addWidget(self.region_btn)
+
+        self.region_label = QLabel('未选择区域')
+        btn_layout.addWidget(self.region_label)
         
         self.start_btn = QPushButton('开始/F1')
         self.start_btn.clicked.connect(self.toggle_process)
@@ -103,6 +121,17 @@ class OCRFeature:
         self.parent.ocr_layout.addWidget(self.result_display)
         
         keyboard.add_hotkey('F1', self.toggle_process)
+
+    def choose_region(self):
+        """Handle region selection button click"""
+        if self.operator is None:
+            self.operator = WinOperator()
+        self.selected_region = self.operator.select_screen_region()
+        if self.selected_region:
+            self.region_label.setText(f"已选择区域: {self.selected_region}")
+            self.start_btn.setEnabled(True)
+        else:
+            self.region_label.setText("未选择区域")
         
 
     def choose_window(self):
@@ -146,13 +175,19 @@ class OCRFeature:
             self.toggle_process()
             return
             
-        screenshot_data = self.handler.capture_question_screenshot()
+        # Use selected region if available, otherwise use default window capture
+        if self.selected_region:
+            x1, y1, x2, y2 = self.selected_region
+            screenshot_data = self.handler.capture_screenshot_ext(x1, y1, x2, y2)
+        else:
+            screenshot_data = self.handler.capture_question_screenshot()
+            
         question = ''.join(self.ocr.do_ocr_ext(screenshot_data, simple=True))
         question = question.replace("咸鱼游戏", "")
         
         if len(question) == 0:
             return
-            
+        self.result_display.append(question)
         answer = find_best_match(self.answer_set, question)
         if answer is not None:
             result_text = f"{answer['q']} ---> {answer['ans']}\n"
