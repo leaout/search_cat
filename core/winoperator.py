@@ -242,7 +242,8 @@ class WinOperator:
             window = self.window
             
         if window is None:
-            raise ValueError("未选择目标窗口")
+            print("未选择目标窗口")
+            return
             
         try:
             window.activate()
