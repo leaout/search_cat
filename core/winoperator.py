@@ -3,6 +3,7 @@ import pyautogui
 import cv2
 import numpy as np
 import threading
+import keyboard
 
 class WinOperator:
     def __init__(self, window=None):
@@ -284,13 +285,15 @@ class MouseClicker:
     def start_clicking(self):
         if not self.is_clicking:
             self.is_clicking = True
-            self.click_thread = threading.Thread(target=self._click_loop)
+            self.click_thread = threading.Thread(target=self._click_loop, daemon=True)
             self.click_thread.start()
 
     def stop_clicking(self):
         self.is_clicking = False
-        if self.click_thread:
-            self.click_thread.join()
+        if self.click_thread and self.click_thread.is_alive():
+            self.click_thread.join(timeout=1.0)
+            if self.click_thread.is_alive():
+                self.click_thread = None
 
     def _click_loop(self):
         while self.is_clicking:
@@ -298,7 +301,27 @@ class MouseClicker:
                 pyautogui.click()
             else:
                 pyautogui.rightClick()
-            pyautogui.PAUSE = self.interval
+            import time
+            time.sleep(self.interval)
+
+class KeyPresser(MouseClicker):
+    def __init__(self, interval=0.1):
+        super().__init__(interval)
+        self.key = 'space'  # 默认按键
+
+    def set_key(self, key):
+        """设置按键
+        参数:
+            key (str): 要模拟的按键名称
+        """
+        self.key = key
+
+    def _click_loop(self):
+        while self.is_clicking:
+            keyboard.press(self.key)
+            keyboard.release(self.key)
+            import time
+            time.sleep(self.interval)
 
 if __name__ == "__main__":
   # handler = WinHandler()
