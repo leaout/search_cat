@@ -27,13 +27,23 @@ class MouseClickerFeature:
         clicker_control_layout.addWidget(QLabel('点击类型:'))
         clicker_control_layout.addWidget(self.click_type_combo)
         
-        # Key selection
-        self.key_combo = QComboBox()
-        self.key_combo.addItems(['space', 'enter', 'a', 'b', 'c', 'd', 'e', 'f'])
-        self.key_combo.currentTextChanged.connect(self.change_key)
-        clicker_control_layout.addWidget(QLabel('按键:'))
-        clicker_control_layout.addWidget(self.key_combo)
-        self.key_combo.setVisible(False)
+        # Key selection - replaced with text input for key combinations
+        self.key_input = QLineEdit()
+        self.key_input.setPlaceholderText('输入按键组合，如: a->b-c ->space')
+        self.key_input.textChanged.connect(self.change_key)
+        clicker_control_layout.addWidget(QLabel('按键组合:'))
+        clicker_control_layout.addWidget(self.key_input)
+        self.key_input.setVisible(False)
+        
+        # Sequence delay input
+        self.sequence_delay_input = QDoubleSpinBox()
+        self.sequence_delay_input.setRange(0.01, 2.0)
+        self.sequence_delay_input.setValue(0.1)
+        self.sequence_delay_input.setSingleStep(0.05)
+        self.sequence_delay_input.valueChanged.connect(self.change_sequence_delay)
+        clicker_control_layout.addWidget(QLabel('序列延时(秒):'))
+        clicker_control_layout.addWidget(self.sequence_delay_input)
+        self.sequence_delay_input.setVisible(False)
         
         # Interval input
         self.interval_input = QDoubleSpinBox()
@@ -41,7 +51,7 @@ class MouseClickerFeature:
         self.interval_input.setValue(0.1)
         self.interval_input.setSingleStep(0.1)
         self.interval_input.valueChanged.connect(self.change_interval)
-        clicker_control_layout.addWidget(QLabel('延时(秒):'))
+        clicker_control_layout.addWidget(QLabel('循环延时(秒):'))
         clicker_control_layout.addWidget(self.interval_input)
         
         # Control button
@@ -59,7 +69,8 @@ class MouseClickerFeature:
     def change_mode(self, text):
         self.current_mode = 'mouse' if text == '鼠标模式' else 'keyboard'
         self.click_type_combo.setVisible(self.current_mode == 'mouse')
-        self.key_combo.setVisible(self.current_mode == 'keyboard')
+        self.key_input.setVisible(self.current_mode == 'keyboard')
+        self.sequence_delay_input.setVisible(self.current_mode == 'keyboard')
         
     def change_click_type(self, text):
         click_type = 'left' if text == '左键' else 'right'
@@ -67,6 +78,9 @@ class MouseClickerFeature:
 
     def change_key(self, key):
         self.key_presser.set_key(key)
+
+    def change_sequence_delay(self, delay):
+        self.key_presser.set_sequence_delay(delay)
 
     def change_interval(self, interval):
         self.mouse_clicker.interval = interval

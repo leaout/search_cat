@@ -307,19 +307,78 @@ class MouseClicker:
 class KeyPresser(MouseClicker):
     def __init__(self, interval=0.1):
         super().__init__(interval)
-        self.key = 'space'  # 默认按键
+        self.key_combination = 'space'  # 默认按键
+        self.key_sequence = ['space']   # 解析后的按键序列
+        self.sequence_delay = 0.1       # 序列按键之间的延迟
 
-    def set_key(self, key):
-        """设置按键
+    def set_key(self, key_combination):
+        """设置按键组合
         参数:
-            key (str): 要模拟的按键名称
+            key_combination (str): 按键组合字符串，支持格式如: a->b-c ->space
         """
-        self.key = key
+        self.key_combination = key_combination
+        self.key_sequence = self._parse_key_combination(key_combination)
+
+    def set_sequence_delay(self, delay):
+        """设置序列按键之间的延迟
+        参数:
+            delay (float): 序列按键之间的延迟时间（秒）
+        """
+        self.sequence_delay = delay
+
+    def _parse_key_combination(self, combination):
+        """解析按键组合字符串
+        支持格式:
+        - 单个按键: 'a', 'space', 'enter'
+        - 组合按键: 'ctrl+a', 'shift+b'
+        - 按键序列: 'a->b->c' (依次按下a, b, c)
+        - 混合格式: 'ctrl+a->b->shift+c'
+        """
+        if not combination:
+            return ['space']  # 默认按键
+            
+        # 分割按键序列
+        sequence = []
+        parts = combination.split('->')
+        
+        for part in parts:
+            part = part.strip()
+            if not part:
+                continue
+                
+            # 处理组合键 (如 'ctrl+a', 'shift+b-c')
+            if '-' in part:
+                # 分割组合键中的各个按键
+                keys = [k.strip() for k in part.split('-') if k.strip()]
+                if keys:
+                    sequence.append(keys)
+            else:
+                # 单个按键
+                sequence.append([part])
+                
+        return sequence
 
     def _click_loop(self):
         while self.is_clicking:
-            keyboard.press(self.key)
-            keyboard.release(self.key)
+            for key_group in self.key_sequence:
+                # 如果是组合键，同时按下所有按键
+                if isinstance(key_group, list) and len(key_group) > 1:
+                    # 按下所有组合键
+                    for key in key_group:
+                        keyboard.press(key)
+                    # 释放所有组合键
+                    for key in key_group:
+                        keyboard.release(key)
+                else:
+                    # 单个按键
+                    key = key_group[0] if isinstance(key_group, list) else key_group
+                    keyboard.press(key)
+                    keyboard.release(key)
+                    
+                # 序列按键之间的延迟
+                import time
+                time.sleep(self.sequence_delay)
+                
             import time
             time.sleep(self.interval)
 
