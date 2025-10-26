@@ -1,6 +1,6 @@
 PyQt5==5.15.9
 pyautogui
-opencv-python
+opencv-python==4.10.0.84
 typing
 matplotlib
 pillow
