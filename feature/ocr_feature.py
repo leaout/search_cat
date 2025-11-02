@@ -1,5 +1,5 @@
 from PyQt5.QtWidgets import (QPushButton, QLabel, QVBoxLayout,
-                            QHBoxLayout, QTextEdit, QWidget)
+                            QHBoxLayout, QTextEdit, QWidget, QLineEdit)
 from PyQt5.QtCore import Qt,QTimer,QObject,pyqtSignal  
 import os
 import keyboard
@@ -55,15 +55,21 @@ class FloatingWindow(QWidget):
         super().__init__(parent)
         self.setWindowTitle("OCR结果")
         self.setWindowFlags(Qt.WindowStaysOnTopHint | Qt.FramelessWindowHint)
-        self.setGeometry(100, 100, 400, 300)
+        self.setGeometry(100, 100, 400, 150)  # 减小高度，因为只需要显示最新结果
         
         layout = QVBoxLayout()
-        self.text_edit = QTextEdit()
-        self.text_edit.setReadOnly(True)
-        layout.addWidget(self.text_edit)
+        
+        # 使用 QLineEdit 或 QLabel 来只显示最新结果
+        self.result_display = QLineEdit()
+        self.result_display.setReadOnly(True)
+        self.result_display.setStyleSheet("QLineEdit { background-color: white; border: 1px solid gray; padding: 5px; }")
+        layout.addWidget(self.result_display)
         
         self.setLayout(layout)
         
+    def update_result(self, text):
+        """更新显示最新的结果"""
+        self.result_display.setText(text)
 
 class OCRFeature(QObject):
     hotkey_triggered = pyqtSignal()  # 定义信号
@@ -95,38 +101,18 @@ class OCRFeature(QObject):
                 self.answer_set.extend(result)
                 
     def init_ui(self):
-        # OCR specific UI components
-        btn_layout = QHBoxLayout()
+        # 连接按钮信号
+        self.parent.window_btn.clicked.connect(self.choose_window)
+        self.parent.region_btn.clicked.connect(self.choose_region)
+        self.parent.start_btn.clicked.connect(self.toggle_process)
         
-        self.window_btn = QPushButton('选择窗口')
-        self.window_btn.clicked.connect(self.choose_window)
-        btn_layout.addWidget(self.window_btn)
+        # 设置结果显示控件为父窗口的current_result
+        self.result_display = self.parent.current_result
         
-        self.window_label = QLabel('未选择窗口')
-        btn_layout.addWidget(self.window_label)
+        # 设置初始状态
+        self.parent.start_btn.setEnabled(False)
 
-        self.region_btn = QPushButton('选择区域')
-        self.region_btn.clicked.connect(self.choose_region)
-        btn_layout.addWidget(self.region_btn)
-
-        self.region_label = QLabel('未选择区域')
-        btn_layout.addWidget(self.region_label)
-        
-        self.start_btn = QPushButton('开始/F1')
-        self.start_btn.clicked.connect(self.toggle_process)
-        self.start_btn.setEnabled(False)
-        btn_layout.addWidget(self.start_btn)
-        
-        self.status_label = QLabel('状态: 停止')
-        btn_layout.addWidget(self.status_label)
-        
-        self.parent.ocr_layout.addLayout(btn_layout)
-        
-        self.result_display = QTextEdit()
-        self.result_display.setReadOnly(True)
-        self.parent.ocr_layout.addWidget(self.result_display)
-        
-        # keyboard.add_hotkey('F1', self.toggle_process)
+        # 设置热键
         keyboard.add_hotkey('F1', self.emit_hotkey_signal)
 
     def choose_region(self):
@@ -135,10 +121,10 @@ class OCRFeature(QObject):
             self.operator = WinOperator()
         self.selected_region = self.operator.select_screen_region()
         if self.selected_region:
-            self.region_label.setText(f"已选择区域: {self.selected_region}")
-            self.start_btn.setEnabled(True)
+            self.parent.region_label.setText(f"已选择区域: {self.selected_region}")
+            self.parent.start_btn.setEnabled(True)
         else:
-            self.region_label.setText("未选择区域")
+            self.parent.region_label.setText("未选择区域")
 
         
     def emit_hotkey_signal(self):
@@ -149,13 +135,13 @@ class OCRFeature(QObject):
         try:
             self.handler.choose_window()
             self.handler.move_and_resize_window(1390, 10, 527, 970)
-            self.window_label.setText("已选择窗口")
-            self.start_btn.setEnabled(True)
+            self.parent.window_label.setText("已选择窗口")
+            self.parent.start_btn.setEnabled(True)
             self.operator = WinOperator(self.handler.window)
         except Exception as e:
-            self.start_btn.setEnabled(True)
-            self.window_label.setText("窗口选择失败")
-            self.result_display.append(f"窗口选择错误: {str(e)}\n")
+            self.parent.start_btn.setEnabled(True)
+            self.parent.window_label.setText("窗口选择失败")
+            self.result_display.setText(f"窗口选择错误: {str(e)}")
 
     def repeat_function(self, interval):
         if self.is_running:
@@ -165,24 +151,24 @@ class OCRFeature(QObject):
     def toggle_process(self):
         if self.is_running:
             self.timer.stop()
-            self.start_btn.setText('开始/F1')
-            self.status_label.setText('状态: 停止')
+            self.parent.start_btn.setText('开始 OCR (F1)')
+            self.parent.status_label.setText('状态: 停止')
             self.is_running = False
-            if self.floating_window:
-                self.floating_window.close()
+            # if self.floating_window:
+            #     self.floating_window.close()
         else:
             self.is_running = True
-            self.floating_window = FloatingWindow()
-            self.floating_window.show()
+            # self.floating_window = FloatingWindow()
+            # self.floating_window.show()
             # self.repeat_function(0.5)
             self.timer.start(500)
-            self.start_btn.setText('停止/F1')
-            self.status_label.setText('状态: 运行中')
+            self.parent.start_btn.setText('停止 OCR (F1)')
+            self.parent.status_label.setText('状态: 运行中')
 
 
     def process_screenshot(self):
         if self.operator is None:
-            self.result_display.append("请先选择目标窗口\n")
+            self.result_display.setText("请先选择目标窗口")
             self.toggle_process()
             return
             
@@ -198,20 +184,19 @@ class OCRFeature(QObject):
         
         if len(question) == 0:
             return
-        self.result_display.append(question)
+            
+        # 直接设置文本，覆盖之前的内容
+        self.result_display.setText(f"识别问题: {question}")
+        
         answer = find_best_match(self.answer_set, question)
         if answer is not None:
-            result_text = f"{answer['q']} ---> {answer['ans']}\n"
-            self.result_display.append(result_text)
-            self.result_display.setFocus()
+            result_text = f"{answer['q']} ---> {answer['ans']}"
+            self.result_display.setText(result_text)
             if self.floating_window:
-                self.floating_window.text_edit.append(result_text)
-                self.floating_window.text_edit.setFocus()
+                self.floating_window.update_result(result_text)
             self.operator.click_trueorfalse(answer['ans'])
         else:
-            error_text = "未找到匹配答案\n"
-            self.result_display.append(error_text)
+            error_text = "未找到匹配答案"
+            self.result_display.setText(error_text)
             if self.floating_window:
-                self.floating_window.text_edit.append(error_text)
-                self.floating_window.text_edit.setFocus()
-                pass
+                self.floating_window.update_result(error_text)
