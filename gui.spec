@@ -12,7 +12,9 @@ a = Analysis(
     datas=[
         ('.\\.venv\\Lib\\site-packages\\paddleocr\\tools', 'paddleocr/tools'),
         ('.\\.venv\\Lib\\site-packages\\paddleocr\\ppocr', 'paddleocr/ppocr'),
-        ('.\\.venv\\Lib\\site-packages\\paddleocr\\ppstructure', 'paddleocr/ppstructure')
+        ('.\\.venv\\Lib\\site-packages\\paddleocr\\ppstructure', 'paddleocr/ppstructure'),
+         # 添加 Cython Utility 文件
+        ('.\\.venv\\Lib\\site-packages\\Cython\\Utility\\*', 'Cython/Utility'),
     ],
 hiddenimports=['paddleocr.tools', 'ppocr', 'shapely', 'pyclipper', 'skimage', 'skimage.morphology', 'imgaug', 'albumentations', 'lmdb', 'docx'],
     hookspath=[],

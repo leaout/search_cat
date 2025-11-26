@@ -51,6 +51,7 @@ class QSearchApp(BaseGUI):
         self.clicker_feature.init_ui()
         
     def setup_left_panel(self):
+         
         """设置左侧功能面板"""
         # OCR功能组
         ocr_group = QGroupBox("OCR 识图搜索")
@@ -83,56 +84,8 @@ class QSearchApp(BaseGUI):
         # 添加到左侧布局
         self.left_layout.addWidget(ocr_group)
         
-        # 鼠标连点器功能组
-        clicker_group = QGroupBox("鼠标连点器")
-        clicker_layout = QGridLayout(clicker_group)
-        
-        # 坐标设置
-        clicker_layout.addWidget(QLabel("X坐标:"), 0, 0)
-        self.x_spin = QSpinBox()
-        self.x_spin.setRange(0, 9999)
-        clicker_layout.addWidget(self.x_spin, 0, 1)
-        
-        clicker_layout.addWidget(QLabel("Y坐标:"), 0, 2)
-        self.y_spin = QSpinBox()
-        self.y_spin.setRange(0, 9999)
-        clicker_layout.addWidget(self.y_spin, 0, 3)
-        
-        # 点击设置
-        clicker_layout.addWidget(QLabel("点击次数:"), 1, 0)
-        self.click_count = QSpinBox()
-        self.click_count.setRange(1, 9999)
-        self.click_count.setValue(10)
-        clicker_layout.addWidget(self.click_count, 1, 1)
-        
-        clicker_layout.addWidget(QLabel("间隔(ms):"), 1, 2)
-        self.interval_spin = QSpinBox()
-        self.interval_spin.setRange(10, 10000)
-        self.interval_spin.setValue(100)
-        clicker_layout.addWidget(self.interval_spin, 1, 3)
-        
-        # 点击按钮
-        self.click_btn = QPushButton("开始点击 (F2)")
-        clicker_layout.addWidget(self.click_btn, 2, 0, 1, 4)
-        
-        # 模式选择
-        mode_layout = QHBoxLayout()
-        mode_layout.addWidget(QLabel("点击模式:"))
-        self.mode_combo = QComboBox()
-        self.mode_combo.addItems(["左键单击", "右键单击", "左键双击"])
-        mode_layout.addWidget(self.mode_combo)
-        mode_layout.addStretch()
-        clicker_layout.addLayout(mode_layout, 3, 0, 1, 4)
-        
-        # 选项
-        option_layout = QHBoxLayout()
-        self.repeat_check = QCheckBox("重复执行")
-        self.repeat_check.setChecked(True)
-        option_layout.addWidget(self.repeat_check)
-        option_layout.addStretch()
-        clicker_layout.addLayout(option_layout, 4, 0, 1, 4)
-        
-        self.left_layout.addWidget(clicker_group)
+        # 注意：这里移除了原有的鼠标连点器界面创建代码
+        # 连点器界面将在 MouseClickerFeature 中创建
         
         # 添加伸缩空间使布局更紧凑
         self.left_layout.addStretch()
@@ -146,7 +99,6 @@ class QSearchApp(BaseGUI):
         self.current_result = QTextEdit()
         self.current_result.setReadOnly(True)
         self.current_result.setPlaceholderText("当前识别结果将显示在这里...")
-        self.current_result.setMaximumHeight(120)  # 设置合适的高度
         self.current_result.setStyleSheet("""
             QTextEdit {
                 background-color: #f8f9fa; 
@@ -160,64 +112,7 @@ class QSearchApp(BaseGUI):
         
         self.right_layout.addWidget(current_group)
         
-        # 操作日志区域
-        log_group = QGroupBox("操作日志")
-        log_layout = QVBoxLayout(log_group)
-        
-        self.log_display = QTextEdit()
-        self.log_display.setReadOnly(True)
-        self.log_display.setMaximumHeight(250)
-        self.log_display.setStyleSheet("""
-            QTextEdit {
-                background-color: #f8f9fa; 
-                border: 1px solid #dee2e6; 
-                padding: 5px;
-                font-family: Consolas, monospace;
-            }
-        """)
-        log_layout.addWidget(self.log_display)
-        
-        # 日志控制按钮
-        log_control_layout = QHBoxLayout()
-        self.clear_log_btn = QPushButton("清空日志")
-        self.export_log_btn = QPushButton("导出日志")
-        log_control_layout.addWidget(self.clear_log_btn)
-        log_control_layout.addWidget(self.export_log_btn)
-        log_control_layout.addStretch()
-        log_layout.addLayout(log_control_layout)
-        
-        self.right_layout.addWidget(log_group)
-        
-        # 状态信息区域
-        status_group = QGroupBox("系统状态")
-        status_layout = QVBoxLayout(status_group)
-        
-        self.system_status = QLabel("系统就绪")
-        self.system_status.setStyleSheet("""
-            QLabel {
-                background-color: #e9ecef; 
-                border: 1px solid #ced4da; 
-                padding: 8px;
-                border-radius: 4px;
-            }
-        """)
-        status_layout.addWidget(self.system_status)
-        
-        # 统计信息
-        stats_layout = QHBoxLayout()
-        stats_layout.addWidget(QLabel("OCR执行:"))
-        self.ocr_count = QLabel("0")
-        stats_layout.addWidget(self.ocr_count)
-        stats_layout.addStretch()
-        
-        stats_layout.addWidget(QLabel("点击次数:"))
-        self.click_count_display = QLabel("0")
-        stats_layout.addWidget(self.click_count_display)
-        status_layout.addLayout(stats_layout)
-        
-        self.right_layout.addWidget(status_group)
-        
-        # 添加伸缩空间
+        # 添加伸缩空间使当前结果区域占据整个右侧面板
         self.right_layout.addStretch()
 
 if __name__ == '__main__':
