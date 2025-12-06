@@ -20,3 +20,9 @@
 ```
 python main.py
 ```
+
+## pack
+```
+pip install pyinstaller
+pyinstaller ./gui.spec
+```
