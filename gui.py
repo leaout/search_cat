@@ -1,21 +1,77 @@
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QVBoxLayout, QHBoxLayout,
                             QWidget, QGroupBox, QTextEdit, QLabel, QPushButton, 
-                            QLineEdit, QSpinBox, QCheckBox, QComboBox, QGridLayout)
-from PyQt5.QtCore import Qt, QMetaObject, QObject, Q_ARG
+                            QLineEdit, QSpinBox, QCheckBox, QComboBox, QGridLayout,
+                            QStatusBar)
+from PyQt5.QtCore import Qt, QMetaObject, QObject, Q_ARG, QTimer, QDateTime
 from PyQt5.QtGui import QIcon, QFont
 import sys
+import json
+import os
+from datetime import datetime, timedelta
 from feature.ocr_feature import OCRFeature
 from feature.mouse_clicker_feature import MouseClickerFeature
 
 class BaseGUI(QMainWindow):
     def __init__(self):
         super().__init__()
+        self.license_file = "license.json"
+        self.expiry_date = self.load_license()
         self.init_ui()
         
+    def load_license(self):
+        """加载许可证信息，如果不存在则创建默认许可证（30天试用）"""
+        default_expiry = datetime.now() + timedelta(days=30)
+        
+        if not os.path.exists(self.license_file):
+            # 创建默认许可证
+            license_data = {
+                "created": datetime.now().isoformat(),
+                "expiry": default_expiry.isoformat(),
+                "type": "trial"
+            }
+            with open(self.license_file, 'w', encoding='utf-8') as f:
+                json.dump(license_data, f, ensure_ascii=False, indent=2)
+            return default_expiry
+        
+        try:
+            with open(self.license_file, 'r', encoding='utf-8') as f:
+                license_data = json.load(f)
+                expiry_str = license_data.get("expiry", default_expiry.isoformat())
+                return datetime.fromisoformat(expiry_str)
+        except Exception as e:
+            print(f"加载许可证失败: {e}")
+            return default_expiry
+    
+    def check_license_valid(self):
+        """检查许可证是否有效"""
+        now = datetime.now()
+        return now < self.expiry_date
+    
+    def get_remaining_days(self):
+        """获取剩余天数"""
+        now = datetime.now()
+        if now >= self.expiry_date:
+            return 0
+        remaining = self.expiry_date - now
+        return remaining.days + 1  # 包括当天
+    
     def init_ui(self):
         self.setWindowTitle('Search Cat - 多功能工具箱')
         self.setGeometry(100, 100, 800, 600)
         self.setWindowIcon(QIcon('icon/icon.png'))
+        
+        # 创建状态栏
+        self.status_bar = QStatusBar()
+        self.setStatusBar(self.status_bar)
+        
+        # 许可证状态标签
+        self.license_label = QLabel()
+        self.update_license_display()
+        self.status_bar.addPermanentWidget(self.license_label)
+        
+        # 题库加载数量标签
+        self.question_count_label = QLabel("题库: 加载中...")
+        self.status_bar.addPermanentWidget(self.question_count_label)
         
         # 主容器
         container = QWidget()
@@ -35,7 +91,27 @@ class BaseGUI(QMainWindow):
         
         # 设置左右面板比例
         self.main_layout.addWidget(self.left_panel, 2)  # 左侧占2份
-        self.main_layout.addWidget(self.right_panel, 1)  # 右侧占1份
+        self.main_layout.addWidget(self.right_panel, 1)  # 右侧占1份)
+        
+        # 创建定时器更新许可证显示
+        self.license_timer = QTimer()
+        self.license_timer.timeout.connect(self.update_license_display)
+        self.license_timer.start(60000)  # 每分钟更新一次
+    
+    def update_license_display(self):
+        """更新许可证显示"""
+        if self.check_license_valid():
+            remaining_days = self.get_remaining_days()
+            expiry_str = self.expiry_date.strftime("%Y-%m-%d %H:%M")
+            self.license_label.setText(f"到期时间: {expiry_str} (剩余{remaining_days}天)")
+            self.license_label.setStyleSheet("color: green; font-weight: bold;")
+        else:
+            self.license_label.setText("软件已过期!")
+            self.license_label.setStyleSheet("color: red; font-weight: bold;")
+    
+    def update_question_count(self, count):
+        """更新题库数量显示"""
+        self.question_count_label.setText(f"题库: {count}题")
 
 class QSearchApp(BaseGUI):
     def __init__(self):

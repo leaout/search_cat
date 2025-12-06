@@ -137,6 +137,7 @@ class OCRFeature(QObject):
         self.operator = None
         self.answer_set = []
         self.floating_window = None
+        self.unmatched_file = "data/unmatched_questions.txt"
         self.load_answers()
         self.timer = QTimer()
         self.timer.timeout.connect(self.process_screenshot)
@@ -153,6 +154,22 @@ class OCRFeature(QObject):
         self.min_interval = 0.3  # 最小处理间隔(秒)
         
         self.hotkey_triggered.connect(self.toggle_process)
+    
+    def record_unmatched_question(self, question):
+        """记录未匹配的问题到文件"""
+        if not question:
+            return
+        
+        try:
+            # 确保data目录存在
+            os.makedirs("data", exist_ok=True)
+            
+            # 写入文件
+            with open(self.unmatched_file, 'a', encoding='utf-8') as f:
+                f.write(question + '\n')
+            print(f"已记录未匹配问题到 {self.unmatched_file}: {question}")
+        except Exception as e:
+            print(f"记录未匹配问题失败: {e}")
         
     def load_answers(self):
         """预加载答案数据，优化匹配速度"""
@@ -169,6 +186,10 @@ class OCRFeature(QObject):
                 
         load_time = time.time() - start_time
         print(f"答案数据加载完成，共{len(self.answer_set)}条，耗时: {load_time:.3f}秒")
+        
+        # 更新状态栏的题库数量显示
+        if hasattr(self.parent, 'update_question_count'):
+            self.parent.update_question_count(len(self.answer_set))
                 
     def init_ui(self):
         self.parent.window_btn.clicked.connect(self.choose_window)
@@ -245,6 +266,9 @@ class OCRFeature(QObject):
             self.result_display.setText(error_text)
             if self.floating_window:
                 self.floating_window.update_result(error_text)
+            
+            # 记录未匹配的问题到文件
+            self.record_unmatched_question(question)
                 
     def on_ocr_error(self, error_msg):
         """OCR错误处理"""
