@@ -8,6 +8,7 @@ from PIL import Image, ImageDraw, ImageFont
 import numpy as np
 from paddleocr import PaddleOCR
 import paddle
+import gc
 
 class Ocr:
     def __init__(self) -> None:
@@ -108,7 +109,8 @@ class Ocr:
     def do_ocr_ext(self, img_data, simple=False) -> List:
         data = self.ocr.ocr(img_data, cls=False)[0]
         if simple: return self.get_all_text(data)
-        self.data = data
+        # self.data = data
+        # gc.collect()
         return data
     
     def search_text(self, query: str, data: List[List[Any]] = None, threshold: float = 0.6) -> List[Tuple[str, Any]]:
