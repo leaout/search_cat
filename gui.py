@@ -10,6 +10,7 @@ import os
 from datetime import datetime, timedelta
 from feature.ocr_feature import OCRFeature
 from feature.mouse_clicker_feature import MouseClickerFeature
+from feature.window_key_feature import WindowKeyFeature
 
 class BaseGUI(QMainWindow):
     def __init__(self):
@@ -122,9 +123,12 @@ class QSearchApp(BaseGUI):
         # 初始化功能模块
         self.ocr_feature = OCRFeature(self)
         self.ocr_feature.init_ui()
-        
+
         self.clicker_feature = MouseClickerFeature(self)
         self.clicker_feature.init_ui()
+
+        self.window_key_feature = WindowKeyFeature(self)
+        self.window_key_feature.init_ui()
         
     def setup_left_panel(self):
          
