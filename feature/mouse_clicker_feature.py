@@ -15,10 +15,11 @@ class MouseClickerFeature:
         self.position_preset = PositionPreset()
         self.script_recorder = ScriptRecorder()
         self.recording = False
+        self.running = False
         
-    def init_ui(self):
-        clicker_group = QGroupBox("高级连点器")
-        clicker_control_layout = QVBoxLayout(clicker_group)
+    def create_ui(self):
+        self.group_box = QGroupBox("高级连点器")
+        clicker_control_layout = QVBoxLayout(self.group_box)
         
         first_row_layout = QHBoxLayout()
         
@@ -146,10 +147,8 @@ class MouseClickerFeature:
         
         clicker_control_layout.addLayout(control_row)
         
-        self.parent.left_layout.addWidget(clicker_group)
-        
-        keyboard.add_hotkey('F3', self.toggle_clicker)
-        keyboard.add_hotkey('F4', self.toggle_recording)
+        self.parent.left_layout.addWidget(self.group_box)
+        self.parent.left_layout.addStretch()
         
         self.update_ui_state()
     
@@ -224,6 +223,57 @@ class MouseClickerFeature:
                 self.pos_x_input.setValue(x)
                 self.pos_y_input.setValue(y)
                 self.apply_position()
+    
+    def start_clicker(self):
+        if not self.is_clicker_running():
+            self.toggle_clicker()
+    
+    def stop_clicker(self):
+        if self.is_clicker_running():
+            self.toggle_clicker()
+    
+    def is_clicker_running(self):
+        if self.current_mode == 'mouse':
+            return self.mouse_clicker.is_clicking
+        elif self.current_mode == 'keyboard':
+            return self.key_presser.is_clicking
+        return False
+    
+    def toggle(self):
+        if self.running:
+            self.stop()
+        else:
+            self.start()
+    
+    def start(self):
+        if self.current_mode == 'mouse':
+            controller = self.mouse_clicker
+        elif self.current_mode == 'keyboard':
+            controller = self.key_presser
+        else:
+            return
+            
+        controller.start_clicking()
+        self.running = True
+        self.clicker_btn.setText('停止 (Home)')
+        self.status_label.setText('状态: 运行中')
+        if hasattr(self.parent, 'hotkey_status_label'):
+            self.parent.hotkey_status_label.setText("▶ 连点器 - 运行中")
+    
+    def stop(self):
+        if self.current_mode == 'mouse':
+            controller = self.mouse_clicker
+        elif self.current_mode == 'keyboard':
+            controller = self.key_presser
+        else:
+            return
+            
+        controller.stop_clicking()
+        self.running = False
+        self.clicker_btn.setText('启动 (Home)')
+        self.status_label.setText('状态: 停止')
+        if hasattr(self.parent, 'hotkey_status_label'):
+            self.parent.hotkey_status_label.setText("○ 连点器 - 停止")
     
     def toggle_clicker(self):
         if self.current_mode == 'mouse':

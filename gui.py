@@ -7,6 +7,7 @@ from PyQt5.QtGui import QIcon, QFont
 import sys
 import json
 import os
+import keyboard
 from datetime import datetime, timedelta
 from feature.ocr_feature import OCRFeature
 from feature.mouse_clicker_feature import MouseClickerFeature
@@ -74,6 +75,11 @@ class BaseGUI(QMainWindow):
         self.question_count_label = QLabel("题库: 加载中...")
         self.status_bar.addPermanentWidget(self.question_count_label)
         
+        # 快捷键状态显示
+        self.hotkey_status_label = QLabel("○ 待机中 (按 Home 选择功能)")
+        self.hotkey_status_label.setStyleSheet("color: #1976D2; font-weight: bold;")
+        self.status_bar.addPermanentWidget(self.hotkey_status_label)
+        
         # 主容器
         container = QWidget()
         self.setCentralWidget(container)
@@ -117,58 +123,61 @@ class BaseGUI(QMainWindow):
 class QSearchApp(BaseGUI):
     def __init__(self):
         super().__init__()
+        self.setup_feature_selector()
         self.setup_left_panel()
         self.setup_right_panel()
         
-        # 初始化功能模块
         self.ocr_feature = OCRFeature(self)
-        self.ocr_feature.init_ui()
-
+        self.ocr_feature.create_ui()
+        
         self.clicker_feature = MouseClickerFeature(self)
-        self.clicker_feature.init_ui()
-
+        self.clicker_feature.create_ui()
+        
         self.window_key_feature = WindowKeyFeature(self)
-        self.window_key_feature.init_ui()
+        self.window_key_feature.create_ui()
+        
+        self.feature_groups = {
+            'OCR识别': self.ocr_feature.group_box,
+            '连点器': self.clicker_feature.group_box,
+            '窗口按键': self.window_key_feature.group_box,
+        }
+        
+        self.feature_combo.currentTextChanged.connect(self.switch_feature)
+        self.switch_feature('OCR识别')
+        
+        keyboard.add_hotkey('home', self.toggle_current_feature)
+        
+    def setup_feature_selector(self):
+        selector_layout = QHBoxLayout()
+        selector_layout.addWidget(QLabel('当前功能:'))
+        self.feature_combo = QComboBox()
+        self.feature_combo.addItems(['OCR识别', '连点器', '窗口按键'])
+        selector_layout.addWidget(self.feature_combo)
+        
+        self.start_feature_btn = QPushButton('启动 (Home)')
+        self.start_feature_btn.clicked.connect(self.toggle_current_feature)
+        selector_layout.addWidget(self.start_feature_btn)
+        
+        self.left_layout.insertLayout(0, selector_layout)
+        
+    def switch_feature(self, feature_name):
+        for name, group in self.feature_groups.items():
+            group.setVisible(name == feature_name)
+        self.current_feature = feature_name
+        
+    def toggle_current_feature(self):
+        if not self.current_feature:
+            return
+        
+        if self.current_feature == 'OCR识别':
+            self.ocr_feature.toggle()
+        elif self.current_feature == '连点器':
+            self.clicker_feature.toggle()
+        elif self.current_feature == '窗口按键':
+            self.window_key_feature.toggle()
         
     def setup_left_panel(self):
-         
-        """设置左侧功能面板"""
-        # OCR功能组
-        ocr_group = QGroupBox("OCR 识图搜索")
-        ocr_layout = QVBoxLayout(ocr_group)
-        
-        # 窗口选择区域
-        window_layout = QHBoxLayout()
-        self.window_btn = QPushButton('选择窗口')
-        self.window_label = QLabel('未选择窗口')
-        window_layout.addWidget(self.window_btn)
-        window_layout.addWidget(self.window_label)
-        ocr_layout.addLayout(window_layout)
-        
-        # 区域选择区域
-        region_layout = QHBoxLayout()
-        self.region_btn = QPushButton('选择区域')
-        self.region_label = QLabel('未选择区域')
-        region_layout.addWidget(self.region_btn)
-        region_layout.addWidget(self.region_label)
-        ocr_layout.addLayout(region_layout)
-        
-        # 控制按钮区域
-        control_layout = QHBoxLayout()
-        self.start_btn = QPushButton('开始 OCR (F1)')
-        self.status_label = QLabel('状态: 停止')
-        control_layout.addWidget(self.start_btn)
-        control_layout.addWidget(self.status_label)
-        ocr_layout.addLayout(control_layout)
-        
-        # 添加到左侧布局
-        self.left_layout.addWidget(ocr_group)
-        
-        # 注意：这里移除了原有的鼠标连点器界面创建代码
-        # 连点器界面将在 MouseClickerFeature 中创建
-        
-        # 添加伸缩空间使布局更紧凑
-        self.left_layout.addStretch()
+        """左侧功能面板由各feature自行创建"""
         
     def setup_right_panel(self):
         """设置右侧结果显示面板"""

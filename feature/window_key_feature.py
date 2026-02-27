@@ -132,11 +132,9 @@ class WindowKeyFeature:
         self.worker = None
         self.is_running = False
 
-    def init_ui(self):
-        """初始化UI界面"""
-        # 创建窗口按键功能组
-        window_key_group = QGroupBox("窗口批量按键")
-        window_key_layout = QVBoxLayout(window_key_group)
+    def create_ui(self):
+        self.group_box = QGroupBox("窗口批量按键")
+        window_key_layout = QVBoxLayout(self.group_box)
 
         # 第一行：窗口过滤器
         filter_layout = QHBoxLayout()
@@ -189,8 +187,8 @@ class WindowKeyFeature:
 
         # 第三行：控制按钮
         control_layout = QHBoxLayout()
-        self.start_btn = QPushButton('开始执行 (F2)')
-        self.start_btn.clicked.connect(self.toggle_execution)
+        self.start_btn = QPushButton('启动 (Home)')
+        self.start_btn.clicked.connect(self.toggle)
         control_layout.addWidget(self.start_btn)
 
         self.status_label = QLabel('状态: 就绪')
@@ -218,17 +216,48 @@ class WindowKeyFeature:
         window_key_layout.addLayout(progress_layout)
 
         # 添加到左侧布局
-        self.parent.left_layout.addWidget(window_key_group)
-
-        # 设置热键
-        keyboard.add_hotkey('F2', self.toggle_execution)
-
-    def toggle_execution(self):
-        """切换执行状态"""
+        self.parent.left_layout.addWidget(self.group_box)
+        self.parent.left_layout.addStretch()
+    
+    def toggle(self):
         if self.is_running:
-            self.stop_execution()
+            self.stop()
         else:
-            self.start_execution()
+            self.start()
+    
+    def start(self):
+        if self.is_running:
+            return
+        key_combination = self.key_input.text().strip()
+        if not key_combination:
+            self.status_label.setText('状态: 请先输入按键')
+            return
+        window_filter = self.window_filter_input.text().strip()
+        if not window_filter:
+            self.status_label.setText('状态: 请先输入窗口过滤关键词')
+            return
+        delay = self.delay_input.value()
+        loop_interval = self.loop_interval_input.value()
+        self.worker = WindowKeyWorker(key_combination, delay, window_filter, loop_interval)
+        self.worker.status_updated.connect(self.on_status_updated)
+        self.worker.progress_updated.connect(self.on_progress_updated)
+        self.worker.error_occurred.connect(self.on_error_occurred)
+        self.worker.start()
+        self.is_running = True
+        self.start_btn.setText('停止 (Home)')
+        self.status_label.setText('状态: 执行中...')
+        if hasattr(self.parent, 'hotkey_status_label'):
+            self.parent.hotkey_status_label.setText("▶ 窗口按键 - 运行中")
+    
+    def stop(self):
+        if self.worker:
+            self.worker.stop()
+            self.worker.wait(2000)
+        self.is_running = False
+        self.start_btn.setText('启动 (Home)')
+        self.status_label.setText('状态: 已停止')
+        if hasattr(self.parent, 'hotkey_status_label'):
+            self.parent.hotkey_status_label.setText("○ 窗口按键 - 停止")
 
     def start_execution(self):
         """开始执行"""

@@ -1,5 +1,5 @@
 from PyQt5.QtWidgets import (QPushButton, QLabel, QVBoxLayout,
-                            QHBoxLayout, QTextEdit, QWidget, QLineEdit)
+                            QHBoxLayout, QTextEdit, QWidget, QLineEdit, QGroupBox)
 from PyQt5.QtCore import Qt, QTimer, QObject, pyqtSignal, QThread, pyqtSlot, QMutex, QMutexLocker  
 import os
 import keyboard
@@ -248,27 +248,54 @@ class OCRFeature(QObject):
         self.answer_set = []
         self.floating_window = None
         self.unmatched_file = "data/unmatched_questions.txt"
+        self.running = False
         
-        # 加载答案库（主线程加载一次）
         self.load_answers()
         
-        # 初始化Worker线程（核心改造：所有处理移到线程内）
         self.ocr_worker = OCRWorker(
             answer_set=self.answer_set,
-            interval=1.0  # 线程内循环间隔1秒
+            interval=1.0
         )
-        # 连接Worker信号到主线程槽函数
         self.ocr_worker.result_ready.connect(self.on_result_ready)
         self.ocr_worker.error_occurred.connect(self.on_error_occurred)
         self.ocr_worker.status_updated.connect(self.on_status_updated)
         
-        # 界面相关
         self.selected_region = None
         self.floating_window = FloatingWindow()
         
-        # 热键控制
-        keyboard.add_hotkey('F1', self.toggle_worker)
-
+    def create_ui(self):
+        from PyQt5.QtWidgets import QVBoxLayout, QHBoxLayout
+        
+        self.group_box = QGroupBox("OCR 识图搜索")
+        layout = QVBoxLayout(self.group_box)
+        
+        window_layout = QHBoxLayout()
+        self.window_btn = QPushButton('选择窗口')
+        self.window_btn.clicked.connect(self.choose_window)
+        self.window_label = QLabel('未选择窗口')
+        window_layout.addWidget(self.window_btn)
+        window_layout.addWidget(self.window_label)
+        layout.addLayout(window_layout)
+        
+        region_layout = QHBoxLayout()
+        self.region_btn = QPushButton('选择区域')
+        self.region_btn.clicked.connect(self.choose_region)
+        self.region_label = QLabel('未选择区域')
+        region_layout.addWidget(self.region_btn)
+        region_layout.addWidget(self.region_label)
+        layout.addLayout(region_layout)
+        
+        control_layout = QHBoxLayout()
+        self.start_btn = QPushButton('启动 (Home)')
+        self.start_btn.clicked.connect(self.toggle)
+        self.status_label = QLabel('状态: 停止')
+        control_layout.addWidget(self.start_btn)
+        control_layout.addWidget(self.status_label)
+        layout.addLayout(control_layout)
+        
+        self.parent.left_layout.addWidget(self.group_box)
+        self.parent.left_layout.addStretch()
+        
     def load_answers(self):
         """加载答案库（主线程执行一次）"""
         print("正在加载答案数据...")
@@ -283,58 +310,51 @@ class OCRFeature(QObject):
         if hasattr(self.parent, 'update_question_count'):
             self.parent.update_question_count(len(self.answer_set))
 
-    def init_ui(self):
-        """初始化界面按钮"""
-        self.parent.window_btn.clicked.connect(self.choose_window)
-        self.parent.region_btn.clicked.connect(self.choose_region)
-        self.parent.start_btn.clicked.connect(self.toggle_worker)
-        self.result_display = self.parent.current_result
-        self.parent.start_btn.setEnabled(False)
-
     def choose_window(self):
-        """选择窗口（主线程执行）"""
         try:
             handler = WindowHandler()
             handler.choose_window()
             handler.move_and_resize_window(1390, 10, 527, 970)
-            self.parent.window_label.setText("已选择窗口")
-            self.parent.start_btn.setEnabled(True)
+            self.window_label.setText("已选择窗口")
+            self.start_btn.setEnabled(True)
         except Exception as e:
-            self.parent.window_label.setText("窗口选择失败")
-            self.result_display.setText(f"窗口选择错误: {str(e)}")
+            self.window_label.setText("窗口选择失败")
+            if hasattr(self, 'result_display') and self.result_display:
+                self.result_display.setText(f"窗口选择错误: {str(e)}")
 
     def choose_region(self):
-        """选择截图区域（主线程执行）"""
         operator = WinOperator()
         self.selected_region = operator.select_screen_region()
         if self.selected_region:
-            self.parent.region_label.setText(f"已选择区域: {self.selected_region}")
-            self.parent.start_btn.setEnabled(True)
-            # 更新Worker的截图区域（线程安全）
+            self.region_label.setText(f"已选择区域: {self.selected_region}")
+            self.start_btn.setEnabled(True)
             self.ocr_worker.set_selected_region(self.selected_region)
         else:
-            self.parent.region_label.setText("未选择区域")
+            self.region_label.setText("未选择区域")
 
-    def toggle_worker(self):
-        """启动/停止Worker（外部控制核心）"""
-        if self.ocr_worker._is_running:
-            self.stop_worker()
-            self.parent.start_btn.setText('开始 OCR (F1)')
-            self.parent.status_label.setText('状态: 停止')
+    def toggle(self):
+        if self.running:
+            self.stop()
         else:
-            self.start_worker()
-            self.parent.start_btn.setText('停止 OCR (F1)')
-            self.parent.status_label.setText('状态: 运行中')
+            self.start()
 
-    def start_worker(self):
-        """启动Worker线程"""
+    def start(self):
         if self.selected_region:
             self.ocr_worker.set_selected_region(self.selected_region)
         self.ocr_worker.start_worker()
+        self.running = True
+        self.start_btn.setText('停止 (Home)')
+        self.status_label.setText('状态: 运行中')
+        if hasattr(self.parent, 'hotkey_status_label'):
+            self.parent.hotkey_status_label.setText("▶ OCR识别 - 运行中")
 
-    def stop_worker(self):
-        """停止Worker线程"""
+    def stop(self):
         self.ocr_worker.stop_worker()
+        self.running = False
+        self.start_btn.setText('启动 (Home)')
+        self.status_label.setText('状态: 停止')
+        if hasattr(self.parent, 'hotkey_status_label'):
+            self.parent.hotkey_status_label.setText("○ OCR识别 - 停止")
 
     # ========== 主线程槽函数（接收Worker信号） ==========
     def on_result_ready(self, question, answer):
@@ -347,19 +367,21 @@ class OCRFeature(QObject):
         else:
             result_text = f"{question} ---> 未找到匹配答案"
             self.record_unmatched_question(question)
-        self.result_display.setText(result_text)
+        if hasattr(self, 'result_display') and self.result_display:
+            self.result_display.setText(result_text)
         # 更新悬浮窗
         if self.floating_window:
             self.floating_window.update_result(result_text)
 
     def on_error_occurred(self, error_msg):
         """接收错误信息（主线程显示）"""
-        self.result_display.setText(error_msg)
+        if hasattr(self, 'result_display') and self.result_display:
+            self.result_display.setText(error_msg)
         print(f"Worker错误: {error_msg}")
 
     def on_status_updated(self, status):
         """接收状态更新（主线程显示）"""
-        self.parent.status_label.setText(f'状态: {status}')
+        self.status_label.setText(f'状态: {status}')
         print(f"Worker状态: {status}")
 
     def record_unmatched_question(self, question):
