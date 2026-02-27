@@ -6,6 +6,7 @@ import pygetwindow as gw
 import keyboard
 import time
 from core.winhandler import WindowHandler
+from core.winoperator import Win32Keyboard
 
 class WindowKeyWorker(QThread):
     """工作线程：遍历窗口并按键"""
@@ -54,16 +55,15 @@ class WindowKeyWorker(QThread):
         try:
             self.is_running = True
             loop_count = 0
+            win32_keyboard = Win32Keyboard()
 
             while self.is_running:
                 loop_count += 1
                 self.status_updated.emit(f"开始第 {loop_count} 轮扫描...")
 
-                # 获取所有窗口
                 all_windows = gw.getAllWindows()
                 target_windows = []
 
-                # 过滤出目标窗口
                 for win in all_windows:
                     if win.title and self.window_filter.lower() in win.title.lower():
                         target_windows.append(win)
@@ -74,7 +74,6 @@ class WindowKeyWorker(QThread):
 
                 self.status_updated.emit(f"第 {loop_count} 轮: 找到 {len(target_windows)} 个目标窗口，开始处理...")
 
-                # 遍历每个窗口
                 for i, win in enumerate(target_windows):
                     if not self.is_running:
                         break
@@ -82,29 +81,19 @@ class WindowKeyWorker(QThread):
                     try:
                         self.progress_updated.emit(f"第 {loop_count} 轮 - 处理窗口 {i+1}/{len(target_windows)}: {win.title}")
 
-                        # 激活窗口
                         win.activate()
-                        time.sleep(0.2)  # 等待窗口激活
+                        time.sleep(0.2)
 
-                        # 执行按键序列
                         for key_group in self.key_sequence:
                             if isinstance(key_group, list) and len(key_group) > 1:
-                                # 组合键，同时按下
-                                for key in key_group:
-                                    keyboard.press(key)
-                                time.sleep(0.05)  # 组合键按下时间
-                                for key in key_group:
-                                    keyboard.release(key)
+                                win32_keyboard.press_combination(*key_group)
                             else:
-                                # 单个按键
                                 key = key_group[0] if isinstance(key_group, list) else key_group
-                                keyboard.press(key)
-                                keyboard.release(key)
+                                win32_keyboard.press(key)
 
-                            time.sleep(0.1)  # 按键间隔
+                            time.sleep(0.1)
 
-                        # 窗口间延迟
-                        if i < len(target_windows) - 1:  # 不是最后一个窗口
+                        if i < len(target_windows) - 1:
                             time.sleep(self.delay_between_windows)
 
                     except Exception as e:
