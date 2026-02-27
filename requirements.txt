@@ -18,3 +18,4 @@ pyaudio
 langchain
 langchain_community
 openai
+pywin32==311
