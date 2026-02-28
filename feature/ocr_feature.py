@@ -293,6 +293,9 @@ class OCRFeature(QObject):
         control_layout.addWidget(self.status_label)
         layout.addLayout(control_layout)
         
+        if hasattr(self.parent, 'current_result'):
+            self.result_display = self.parent.current_result
+        
         self.parent.left_layout.addWidget(self.group_box)
         self.parent.left_layout.addStretch()
         
@@ -339,8 +342,10 @@ class OCRFeature(QObject):
             self.start()
 
     def start(self):
-        if self.selected_region:
-            self.ocr_worker.set_selected_region(self.selected_region)
+        if not self.selected_region:
+            self.status_label.setText('状态: 请先选择窗口和区域')
+            return
+        self.ocr_worker.set_selected_region(self.selected_region)
         self.ocr_worker.start_worker()
         self.running = True
         self.start_btn.setText('停止 (Home)')
