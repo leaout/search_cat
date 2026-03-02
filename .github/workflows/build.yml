@@ -2,8 +2,10 @@ name: Build Windows Executable
 
 on:
   push:
+    branches:
+      - main  # 每次推送到main分支时构建
     tags:
-      - 'v*'  # Trigger on version tags
+      - 'v*'  # 也支持打tag构建
 
 jobs:
   build:
@@ -11,62 +13,44 @@ jobs:
 
     steps:
     - name: Checkout code
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4
 
     - name: Set up Python
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v5
       with:
         python-version: '3.10'
 
+    - name: Create virtual environment
+      run: |
+        python -m venv .venv
+        .\.venv\Scripts\python.exe -m pip install --upgrade pip
+
     - name: Install dependencies
       run: |
-        python -m pip install --upgrade pip
-        pip install -r requirements.txt
-        pip install pyinstaller
+        .\.venv\Scripts\pip.exe install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
+        .\.venv\Scripts\pip.exe install pyinstaller
 
-    - name: Check for typing package
-      run: |
-        python -m pip show typing || echo "typing package not found"
-        
-    - name: Remove typing package
-      run: |
-        python -m pip uninstall -y typing || echo "Failed to uninstall typing package"
-        
-    - name: Verify typing removal
-      run: |
-        python -m pip show typing && exit 1 || echo "typing package successfully removed"
-        
     - name: Build with PyInstaller
       run: |
-        pyinstaller gui.spec --noconfirm --exclude-module typing
+        .\.venv\Scripts\python.exe -m PyInstaller gui.spec --noconfirm
+
+    - name: Check build output
+      run: |
+        if (Test-Path dist/gui/gui.exe) {
+            Write-Host "Build successful: gui.exe found"
+            Get-ChildItem dist/gui/
+        } else {
+            Write-Host "Build failed: gui.exe not found"
+            Get-ChildItem dist/ -Recurse
+            exit 1
+        }
 
     - name: Package artifacts
       run: |
-        Compress-Archive -Path dist/gui/* -DestinationPath gui.zip
+        Compress-Archive -Path dist/gui\* -DestinationPath gui.zip -Force
 
     - name: Upload artifact
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
-        name: gui
+        name: gui-windows
         path: gui.zip
-
-    - name: Create Release
-      id: create_release
-      uses: actions/create-release@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        tag_name: ${{ github.ref }}
-        release_name: Release ${{ github.ref }}
-        draft: false
-        prerelease: false
-
-    - name: Upload Release Asset
-      uses: actions/upload-release-asset@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        upload_url: ${{ steps.create_release.outputs.upload_url }}
-        asset_path: gui.zip
-        asset_name: gui.zip
-        asset_content_type: application/zip

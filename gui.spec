@@ -21,8 +21,8 @@ a = Analysis(
         'skimage.morphology', 'imgaug', 'albumentations', 'lmdb', 'docx',
         'requests',  # 添加 requests 模块
         'urllib3', 'chardet', 'idna', 'certifi',  # requests 的依赖
-        'Cython', 'Cython.Build', 'Cython.Compiler', 'Cython.Runtime'  # 确保 Cython 相关模块
-        'win32api', 
+        'Cython', 'Cython.Build', 'Cython.Compiler', 'Cython.Runtime',  # 确保 Cython 相关模块
+        'win32api',
     ],
     hookspath=[],
     hooksconfig={},
