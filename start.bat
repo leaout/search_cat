@@ -1,0 +1,1 @@
+d:/git/search_cat/.venv/Scripts/python.exe d:/git/search_cat/gui.py
