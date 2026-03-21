@@ -22,19 +22,34 @@ def find_best_match(properties, query):
 
 
 def parse_json_lines(file_path):
-
-    #返回一个json列表
     json_list = []
-    with open(file_path, 'r', encoding='utf-8') as file:
+    with open(file_path, 'r', encoding='utf-8-sig') as file:
+        content = file.read()
+        try:
+            data = json.loads(content)
+            if isinstance(data, list):
+                for item in data:
+                    if isinstance(item, dict) and 'q' in item:
+                        json_list.append(item)
+                return json_list
+        except json.JSONDecodeError:
+            pass
+        file.seek(0)
         for line in file:
+            line = line.strip()
+            if not line or line == '[':
+                continue
+            if line.endswith(','):
+                line = line[:-1]
+            if line == ']':
+                break
             try:
                 json_data = json.loads(line)
-                json_list.append(json_data)
-                # yield json_data
-            except json.JSONDecodeError as e:
-                print(f"Error parsing JSON on line: {line}")
-                print(e)
-        return json_list
+                if isinstance(json_data, dict) and 'q' in json_data:
+                    json_list.append(json_data)
+            except json.JSONDecodeError:
+                pass
+    return json_list
     
 def run_select_region(handler, operator, ocr, answer_set):
 

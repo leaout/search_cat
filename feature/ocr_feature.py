@@ -34,22 +34,34 @@ def find_best_match_simple(properties, query, threshold=40):
     return best_prop
 
 def parse_json_lines(file_path):
-    """解析JSON文件（兼容单行/数组格式）"""
+    """解析JSON文件（兼容单行/数组格式/BOM）"""
     json_list = []
-    with open(file_path, 'r', encoding='utf-8') as file:
+    with open(file_path, 'r', encoding='utf-8-sig') as file:
         content = file.read()
         try:
             data = json.loads(content)
             if isinstance(data, list):
-                return data
+                for item in data:
+                    if isinstance(item, dict) and 'q' in item:
+                        json_list.append(item)
+                return json_list
         except json.JSONDecodeError:
-            file.seek(0)
-            for line in file:
-                try:
-                    json_data = json.loads(line)
+            pass
+        file.seek(0)
+        for line in file:
+            line = line.strip()
+            if not line or line == '[':
+                continue
+            if line.endswith(','):
+                line = line[:-1]
+            if line == ']':
+                break
+            try:
+                json_data = json.loads(line)
+                if isinstance(json_data, dict) and 'q' in json_data:
                     json_list.append(json_data)
-                except json.JSONDecodeError as e:
-                    print(f"解析JSON行错误: {line} | {e}")
+            except json.JSONDecodeError:
+                pass
     return json_list
 
 # ========== 重构后的OCR Worker（全流程在线程内执行） ==========
