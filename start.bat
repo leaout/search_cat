@@ -1,1 +1,1 @@
-d:/git/search_cat/.venv/Scripts/python.exe d:/git/search_cat/gui.py
+"%~dp0.venv\Scripts\python.exe" "%~dp0gui.py"
