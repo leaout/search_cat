@@ -4,8 +4,8 @@ import cv2
 import numpy as np
 from PyQt5.QtWidgets import (QGroupBox, QVBoxLayout, QHBoxLayout,
                              QPushButton, QLabel, QListWidget, QListWidgetItem,
-                             QInputDialog, QMessageBox, QLineEdit)
-from PyQt5.QtCore import QObject, pyqtSignal
+                             QInputDialog, QMessageBox, QLineEdit, QDialog)
+from PyQt5.QtCore import QObject, pyqtSignal, Qt
 from pygetwindow import getWindowsWithTitle
 from pynput import mouse
 import threading
@@ -31,12 +31,35 @@ class CoordHelperFeature(QObject):
         self.coord_ready.connect(self.on_coord_ready)
 
     def on_coord_ready(self, rel_x, rel_y):
-        name, ok = QInputDialog.getText(self.gui, "保存坐标",
-                                                     "相对坐标: (" + str(rel_x) + ", " + str(rel_y) + ")\n输入元素名称（取消停止监听）:")
-        if ok and name.strip():
-            self.config[name.strip()] = [rel_x, rel_y]
-            self.save_config()
-            self.update_list()
+        dialog = QDialog(self.gui)
+        dialog.setWindowTitle("保存坐标")
+        dialog.setWindowFlags(dialog.windowFlags() | Qt.WindowStaysOnTopHint)
+        dialog.setModal(True)
+        
+        layout = QVBoxLayout()
+        layout.addWidget(QLabel("相对坐标: (" + str(rel_x) + ", " + str(rel_y) + ")\n输入元素名称（取消停止监听）:"))
+        
+        edit = QLineEdit()
+        layout.addWidget(edit)
+        
+        btn_layout = QHBoxLayout()
+        ok_btn = QPushButton("确定")
+        cancel_btn = QPushButton("取消")
+        btn_layout.addWidget(ok_btn)
+        btn_layout.addWidget(cancel_btn)
+        layout.addLayout(btn_layout)
+        
+        dialog.setLayout(layout)
+        
+        ok_btn.clicked.connect(dialog.accept)
+        cancel_btn.clicked.connect(dialog.reject)
+        
+        if dialog.exec_() == QDialog.Accepted:
+            name = edit.text().strip()
+            if name:
+                self.config[name] = [rel_x, rel_y]
+                self.save_config()
+                self.update_list()
         self._stop_requested = True
 
     def toggle(self):
@@ -165,18 +188,21 @@ class CoordHelperFeature(QObject):
         ix, iy = -1, -1
         fx, fy = -1, -1
         clone = frame.copy()
+        region_selected = False
 
         def draw_rect(event, x, y, flags, param):
-            nonlocal drawing, ix, iy, fx, fy
+            nonlocal drawing, ix, iy, fx, fy, region_selected
             if event == cv2.EVENT_LBUTTONDOWN:
                 drawing = True
                 ix, iy = x, y
                 fx, fy = x, y
+                region_selected = False
             elif event == cv2.EVENT_MOUSEMOVE and drawing:
                 fx, fy = x, y
             elif event == cv2.EVENT_LBUTTONUP:
                 drawing = False
                 fx, fy = x, y
+                region_selected = True
 
         cv2.namedWindow("框选区域（拖框选择，C确认，R重置，ESC退出）")
         cv2.setMouseCallback("框选区域（拖框选择，C确认，R重置，ESC退出）", draw_rect)
@@ -187,27 +213,54 @@ class CoordHelperFeature(QObject):
                 cv2.rectangle(img, (ix, iy), (fx, fy), (0, 255, 0), 2)
                 w, h = abs(fx - ix), abs(fy - iy)
                 cv2.putText(img, str(w) + "x" + str(h), (ix, iy - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
+                if region_selected:
+                    cv2.putText(img, "Press C to confirm", (ix, iy - 30), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 1)
             cv2.imshow("框选区域（拖框选择，C确认，R重置，ESC退出）", img)
             key = cv2.waitKey(1) & 0xFF
             if key == ord('r'):
                 ix, iy, fx, fy = -1, -1, -1, -1
-            elif key == ord('c'):
-                if ix == -1 or fx == -1:
-                    continue
+                region_selected = False
+            elif key == ord('c') and region_selected:
+                cv2.destroyAllWindows()
                 x1, x2 = min(ix, fx), max(ix, fx)
                 y1, y2 = min(iy, fy), max(iy, fy)
                 rel_x1 = x1 - left
                 rel_y1 = y1 - top
                 rel_w = x2 - x1
                 rel_h = y2 - y1
-                msg = "相对坐标: 左" + str(rel_x1) + ", 上" + str(rel_y1) + ", 宽" + str(rel_w) + ", 高" + str(rel_h)
-                name, ok = QInputDialog.getText(self.gui, "保存区域",
-                                                        msg + "\n输入区域名称（取消跳过）:")
-                if ok and name.strip():
-                    self.config[name.strip()] = [rel_x1, rel_y1, rel_w, rel_h]
-                    self.save_config()
-                    self.update_list()
-                    break
+                
+                dialog = QDialog(self.gui)
+                dialog.setWindowTitle("保存区域")
+                dialog.setWindowFlags(dialog.windowFlags() | Qt.WindowStaysOnTopHint)
+                dialog.setModal(True)
+                
+                layout = QVBoxLayout()
+                info = "相对坐标: 左" + str(rel_x1) + ", 上" + str(rel_y1) + ", 宽" + str(rel_w) + ", 高" + str(rel_h)
+                layout.addWidget(QLabel(info))
+                layout.addWidget(QLabel("输入区域名称:"))
+                
+                edit = QLineEdit()
+                layout.addWidget(edit)
+                
+                btn_layout = QHBoxLayout()
+                ok_btn = QPushButton("确定")
+                cancel_btn = QPushButton("取消")
+                btn_layout.addWidget(ok_btn)
+                btn_layout.addWidget(cancel_btn)
+                layout.addLayout(btn_layout)
+                
+                dialog.setLayout(layout)
+                
+                ok_btn.clicked.connect(dialog.accept)
+                cancel_btn.clicked.connect(dialog.reject)
+                
+                if dialog.exec_() == QDialog.Accepted:
+                    name = edit.text().strip()
+                    if name:
+                        self.config[name] = [rel_x1, rel_y1, rel_w, rel_h]
+                        self.save_config()
+                        self.update_list()
+                break
             elif key == 27:  # ESC
                 break
         cv2.destroyAllWindows()
