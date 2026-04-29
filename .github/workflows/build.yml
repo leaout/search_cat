@@ -32,10 +32,6 @@ jobs:
         .\.venv\Scripts\pip.exe install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
         .\.venv\Scripts\pip.exe install pyinstaller
 
-    - name: Remove obsolete typing package
-      run: |
-        .\.venv\Scripts\pip.exe uninstall -y typing || echo "typing not installed"
-
     - name: Build with PyInstaller
       run: |
         .\.venv\Scripts\python.exe -m PyInstaller gui.spec --noconfirm
