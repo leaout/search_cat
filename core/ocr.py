@@ -1,18 +1,15 @@
-from typing import Callable, Any, List, Tuple
 import difflib
 import cv2
-from matplotlib import pyplot as plt
 import csv
 import json
 from PIL import Image, ImageDraw, ImageFont
 import numpy as np
-from paddleocr import PaddleOCR
-import paddle
-import gc
+import ddddocr
+from typing import List, Tuple, Any
 
 class Ocr:
     def __init__(self) -> None:
-        self.ocr = PaddleOCR(show_log=False)
+        self.ocr = ddddocr.DdddOcr(show_log=False)
         self.data = None  # 存储OCR识别结果
 
     def multi_scale_template_match(self, main_image_path, template_image_path, method=cv2.TM_CCOEFF_NORMED, threshold=0.6, show=False):
@@ -101,17 +98,25 @@ class Ocr:
         返回:
         List: OCR识别结果
         """
-        data = self.ocr.ocr(file_path, cls=False)[0]
-        if simple: return self.get_all_text(data)
-        self.data = data
-        return data
-    
+        with open(file_path, 'rb') as f:
+            img_bytes = f.read()
+        text = self.ocr.classification(img_bytes)
+        data = [[[0, 0], [0, 0], [0, 0], [0, 0]], [text, 1.0]]
+        if simple: return self.get_all_text([data])
+        self.data = [data]
+        return [data]
+
     def do_ocr_ext(self, img_data, simple=False) -> List:
-        data = self.ocr.ocr(img_data, cls=False)[0]
-        if simple: return self.get_all_text(data)
-        # self.data = data
-        # gc.collect()
-        return data
+        if isinstance(img_data, str):
+            with open(img_data, 'rb') as f:
+                img_bytes = f.read()
+        else:
+            img_bytes = img_data
+        text = self.ocr.classification(img_bytes)
+        data = [[[0, 0], [0, 0], [0, 0], [0, 0]], [text, 1.0]]
+        if simple: return self.get_all_text([data])
+        self.data = [data]
+        return [data]
     
     def search_text(self, query: str, data: List[List[Any]] = None, threshold: float = 0.6) -> List[Tuple[str, Any]]:
         """
@@ -128,19 +133,20 @@ class Ocr:
         data = data if data else self.data
         results = []
         
+        if data is None: return results
+        
         for item in data:
-            points = [(int(x), int(y)) for x, y in item[0]]
-            text, confidence = item[1]
+            text = item[1][0] if isinstance(item[1], list) else item[1]
             similarity = difflib.SequenceMatcher(None, query, text).ratio()
             if similarity >= threshold or query in text:
                 results.append({'text': text, 
                                 'similarity': similarity, 
-                                'confidence':confidence, 
+                                'confidence': 1.0, 
                                 'position': {
-                                    'p': points,
-                                    'c': ((points[0][0]+points[1][0])/2, (points[0][1]+points[3][1])/2),
-                                    'w': points[1][0]+points[0][0],
-                                    'h': points[3][1]+points[0][1]
+                                    'p': [(0, 0), (0, 0), (0, 0), (0, 0)],
+                                    'c': (0, 0),
+                                    'w': 0,
+                                    'h': 0
                                 }})
         
         results.sort(key=lambda x: x['similarity'], reverse=True)
@@ -202,14 +208,59 @@ class Ocr:
         res = []
         if data is None: return res
         for item in data:
-            text = str(item[1][0])  # 确保 text 是字符串类型
-            points = item[0]
-            res.append((text, points) if position else text) 
+            if isinstance(item[1], list):
+                text = str(item[1][0])
+            else:
+                text = str(item[1])
+            res.append(text)
         return res
-              
+
+    def filter_high_confidence(self, threshold: float = 0.9, data: List[List[Any]] = None) -> List[str]:
+        """
+        过滤高置信度的OCR结果
+
+        参数:
+        data (List[List[Any]]): OCR识别结果的数据。
+        threshold (float): 置信度阈值，默认为0.9。
+
+        返回:
+        List[str]: 高置信度的识别结果文本列表
+        """
+        data = data if data else self.data
+        if data is None: return []
+        return [item[1][0] if isinstance(item[1], list) else item[1] for item in data]
+
+    def export_to_file(self, file_path: str, file_format: str = 'json', data: List[List[Any]] = None) -> None:
+        """
+        将OCR结果导出到文件
+
+        参数:
+        data (List[List[Any]]): OCR识别结果的数据。
+        file_path (str): 导出文件的路径。
+        file_format (str): 文件格式，可以是'json'或'csv'。
+
+        返回:
+        None
+        """
+        data = data if data else self.data
+        if data is None: return
+        
+        if file_format == 'json':
+            with open(file_path, 'w', encoding='utf-8') as f:
+                json.dump([item[1][0] if isinstance(item[1], list) else item[1] for item in data], f, ensure_ascii=False, indent=4)
+        elif file_format == 'csv':
+            with open(file_path, 'w', newline='', encoding='utf-8') as f:
+                writer = csv.writer(f)
+                writer.writerow(['Text'])
+                for item in data:
+                    text = item[1][0] if isinstance(item[1], list) else item[1]
+                    writer.writerow([text])
+        else:
+            raise ValueError("Unsupported file format. Use 'json' or 'csv'.")
+
     def display_text_positions(self, data: List[List[Any]] = None) -> None:
         """
-        显示所有文本及其位置
+        显示所有文本（ddddocr不提供位置信息）
 
         参数:
         data (List[List[Any]]): OCR识别结果的数据。
@@ -218,59 +269,19 @@ class Ocr:
         None
         """
         data = data if data else self.data
+        if data is None: return
         for item in data:
-            text = str(item[1][0])  # 确保 text 是字符串类型
-            points = item[0]
-            print(f"Text: {text}, Position: {points}")
-            
-    def visualize_results(self, file_path: str, show: bool = True, save_path: str = None, data: List[List[Any]] = None) -> None:
-        """
-        可视化OCR结果，在图像上绘制识别出的文本框
-
-        参数:
-        file_path (str): 图像文件路径。
-        data (List[List[Any]]): OCR识别结果的数据。
-        show (bool): 是否显示图像，默认值为True。
-        save_path (str): 保存图像的路径，如果为None则不保存图像，默认值为None。
-
-        返回:
-        None
-        """
-        data = data if data else self.data
-        # 读取图像并转换为PIL图像
-        img = cv2.imread(file_path)
-        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-        pil_img = Image.fromarray(img)
-        draw = ImageDraw.Draw(pil_img)
-        # 使用黑体字体，可以选择合适的字体文件
-        font = ImageFont.truetype("simhei.ttf", 20)  
-        
-        for item in data:
-            points = item[0]
-            # 确保 text 是字符串类型
-            text = str(item[1][0])  
-            # 确保 points 中的坐标是整数类型
-            points = [(int(x), int(y)) for x, y in points]
-            draw.polygon(points, outline=(0, 255, 0))
-            draw.text((points[0][0], points[0][1] - 20), text, font=font, fill=(0, 255, 0))
-        img = np.array(pil_img)
-        if show:
-            plt.imshow(img)
-            plt.axis('off')
-            plt.show()
-
-        if save_path: pil_img.save(save_path)
+            text = item[1][0] if isinstance(item[1], list) else item[1]
+            print(f"Text: {text}")
 
 
 if __name__ == "__main__":
-    print(paddle.__version__)
     ocr = Ocr()
     data = ocr.do_ocr("D:/gitpro/qs_search/screenshot.jpg")
-    ocr.display_text_positions()
+    texts = ocr.get_all_text()
+    for text in texts:
+        print(f"Text: {text}")
     search_results = ocr.search_text(query="咸鱼")
     for item in search_results:
-        print(f"Text: {item['text']}, Similarity: {item['similarity']:.2f}, Position: {item['position']}")
-    ocr.visualize_results("D:/gitpro/qs_search/screenshot.jpg")
-    
-    # ocr.crop_image("screenshot.png", "screenshot_2.png", x=0, y=0, width_ratio=1.0, height_ratio=0.5)
+        print(f"Text: {item['text']}, Similarity: {item['similarity']:.2f}")
     # print(ocr.do_ocr("screenshot_2.png", simple=True))

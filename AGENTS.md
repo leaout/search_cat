@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-Search Cat (搜索猫) is a Python desktop application for search assistance and automated test answering. It uses PyQt5 for GUI, PaddleOCR for text recognition, and Windows APIs for automation.
+Search Cat (搜索猫) is a Python desktop application for search assistance and automated test answering. It uses PyQt5 for GUI, ddddocr for text recognition, and Windows APIs for automation.
 
 ## Build & Run Commands
 
@@ -28,7 +28,7 @@ python -m venv .venv
 ### Dependencies (from requirements.txt)
 - PyQt5==5.15.9
 - pyautogui, opencv-python, pillow, numpy
-- paddleocr==2.10.0, paddlepaddle==3.0.0
+- ddddocr (lightweight OCR, replaces PaddleOCR)
 - pywin32==311, pygetwindow, mss
 - FuzzyWuzzy/rapidfuzz, keyboard
 - langchain, langchain_community, openai
