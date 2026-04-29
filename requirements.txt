@@ -3,9 +3,10 @@ pyautogui
 opencv-python==4.10.0.84
 matplotlib
 pillow
-numpy
+numpy<2
 setuptools
 ddddocr
+onnxruntime==1.17.1
 pygetwindow
 mss
 FuzzyWuzzy

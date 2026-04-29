@@ -27,8 +27,9 @@ python -m venv .venv
 
 ### Dependencies (from requirements.txt)
 - PyQt5==5.15.9
-- pyautogui, opencv-python, pillow, numpy
-- ddddocr (lightweight OCR, replaces PaddleOCR)
+- pyautogui, opencv-python, pillow, numpy<2
+- ddddocr (lightweight OCR, replaces PaddleOCR; requires onnxruntime==1.17.1)
+- onnxruntime==1.17.1 (pinned for Windows compatibility)
 - pywin32==311, pygetwindow, mss
 - FuzzyWuzzy/rapidfuzz, keyboard
 - langchain, langchain_community, openai
