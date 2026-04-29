@@ -1,22 +1,25 @@
 import json
+import os
 import cv2
 import numpy as np
-from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QGroupBox,
+from PyQt5.QtWidgets import (QGroupBox, QVBoxLayout, QHBoxLayout,
                              QPushButton, QLabel, QListWidget, QListWidgetItem,
                              QInputDialog, QMessageBox, QLineEdit)
-from PyQt5.QtCore import Qt
-import mss
+from PyQt5.QtCore import QObject, pyqtSignal
 from pygetwindow import getWindowsWithTitle
 from pynput import mouse
 import threading
+import mss
 
 
+CONFIG_FILE = "data/ui_coords.json"
 
-CONFIG_FILE = "ui_coords.json"
 
+class CoordHelperFeature(QObject):
+    coord_ready = pyqtSignal(int, int)  # rel_x, rel_y
 
-class CoordHelperFeature:
     def __init__(self, gui):
+        super().__init__()
         self.gui = gui
         self.group_box = None
         self.config = {}
@@ -25,6 +28,16 @@ class CoordHelperFeature:
         self.mouse_listener = None
         self.active = False
         self._stop_requested = False
+        self.coord_ready.connect(self.on_coord_ready)
+
+    def on_coord_ready(self, rel_x, rel_y):
+        name, ok = QInputDialog.getText(self.gui, "保存坐标",
+                                                     "相对坐标: (" + str(rel_x) + ", " + str(rel_y) + ")\n输入元素名称（取消停止监听）:")
+        if ok and name.strip():
+            self.config[name.strip()] = [rel_x, rel_y]
+            self.save_config()
+            self.update_list()
+        self._stop_requested = True
 
     def toggle(self):
         self.active = not self.active
@@ -32,15 +45,7 @@ class CoordHelperFeature:
             self.gui.status_bar.showMessage("坐标助手已激活")
         else:
             self.gui.status_bar.showMessage("坐标助手已停止")
-            self.stop_listening()
-
-    def stop_listening(self):
-        self._stop_requested = True
-        if self.mouse_listener:
-            try:
-                self.mouse_listener.stop()
-            except:
-                pass
+            self._stop_requested = True
 
     def create_ui(self):
         self.group_box = QGroupBox("坐标助手")
@@ -124,34 +129,23 @@ class CoordHelperFeature:
         QMessageBox.information(self.gui, "提示", "进入点选模式\n在游戏窗口点击任意元素\n点击取消停止监听")
 
         self._stop_requested = False
-        self.mouse_listener = None
 
         def on_click(x, y, button, pressed):
             if self._stop_requested:
-                if self.mouse_listener:
-                    self.mouse_listener.stop()
-                return
+                return False
             if not pressed:
                 return
             rel_x = x - left
             rel_y = y - top
             print("屏幕坐标(" + str(x) + "," + str(y) + ") -> 窗口相对坐标(" + str(rel_x) + ", " + str(rel_y) + ")")
-            name, ok = QInputDialog.getText(self.gui, "保存坐标",
-                                                     "相对坐标: (" + str(rel_x) + ", " + str(rel_y) + ")\n输入元素名称（取消停止监听）:")
-            if ok and name.strip():
-                self.config[name.strip()] = [rel_x, rel_y]
-                self.save_config()
-                self.update_list()
-            # 无论是否保存，都停止监听
-            self.stop_listening()
+            self.coord_ready.emit(rel_x, rel_y)
+            return False
 
-        def listen():
+        def listen_thread():
             with mouse.Listener(on_click=on_click) as listener:
-                self.mouse_listener = listener
                 listener.join()
 
-        thread = threading.Thread(target=listen, daemon=True)
-        thread.start()
+        threading.Thread(target=listen_thread, daemon=True).start()
 
     def start_region_mode(self):
         win = self.get_game_window()
