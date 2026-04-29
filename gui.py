@@ -12,6 +12,7 @@ from datetime import datetime, timedelta
 from feature.ocr_feature import OCRFeature
 from feature.mouse_clicker_feature import MouseClickerFeature
 from feature.window_key_feature import WindowKeyFeature
+from feature.coord_helper_feature import CoordHelperFeature
 
 class BaseGUI(QMainWindow):
     def __init__(self):
@@ -136,10 +137,14 @@ class QSearchApp(BaseGUI):
         self.window_key_feature = WindowKeyFeature(self)
         self.window_key_feature.create_ui()
         
+        self.coord_helper_feature = CoordHelperFeature(self)
+        self.coord_helper_feature.create_ui()
+        
         self.feature_groups = {
             'OCR识别': self.ocr_feature.group_box,
             '连点器': self.clicker_feature.group_box,
             '窗口按键': self.window_key_feature.group_box,
+            '坐标助手': self.coord_helper_feature.group_box,
         }
         
         self.feature_combo.currentTextChanged.connect(self.switch_feature)
@@ -151,7 +156,7 @@ class QSearchApp(BaseGUI):
         selector_layout = QHBoxLayout()
         selector_layout.addWidget(QLabel('当前功能:'))
         self.feature_combo = QComboBox()
-        self.feature_combo.addItems(['OCR识别', '连点器', '窗口按键'])
+        self.feature_combo.addItems(['OCR识别', '连点器', '窗口按键', '坐标助手'])
         selector_layout.addWidget(self.feature_combo)
         
         self.start_feature_btn = QPushButton('启动 (Home)')
@@ -175,6 +180,8 @@ class QSearchApp(BaseGUI):
             self.clicker_feature.toggle()
         elif self.current_feature == '窗口按键':
             self.window_key_feature.toggle()
+        elif self.current_feature == '坐标助手':
+            self.coord_helper_feature.toggle() if hasattr(self.coord_helper_feature, 'toggle') else None
         
     def setup_left_panel(self):
         """左侧功能面板由各feature自行创建"""
