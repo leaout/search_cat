@@ -1,7 +1,7 @@
 [English](readme_en.md) | 简体中文
 # 搜索猫 (Search Cat)
 
-![icon](icon/icon.ico)
+![icon](icon/icon.png)
 
 一款 Windows 桌面应用，用于搜索辅助和自动化答题。基于截图 OCR 识别题目，自动匹配题库答案，支持多种自动化操作。
 
