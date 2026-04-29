@@ -11,6 +11,7 @@ from pynput import mouse
 import threading
 
 
+
 CONFIG_FILE = "ui_coords.json"
 
 
@@ -23,14 +24,23 @@ class CoordHelperFeature:
         self.window_title_edit = None
         self.mouse_listener = None
         self.active = False
+        self._stop_requested = False
 
     def toggle(self):
-        """启动/停止坐标助手"""
         self.active = not self.active
         if self.active:
             self.gui.status_bar.showMessage("坐标助手已激活")
         else:
             self.gui.status_bar.showMessage("坐标助手已停止")
+            self.stop_listening()
+
+    def stop_listening(self):
+        self._stop_requested = True
+        if self.mouse_listener:
+            try:
+                self.mouse_listener.stop()
+            except:
+                pass
 
     def create_ui(self):
         self.group_box = QGroupBox("坐标助手")
@@ -111,20 +121,29 @@ class CoordHelperFeature:
         left, top, width, height = win
         msg = "窗口位置：左" + str(left) + ", 上" + str(top) + " | 大小：" + str(width) + "x" + str(height)
         self.gui.status_bar.showMessage(msg)
-        QMessageBox.information(self.gui, "提示", "进入点选模式\n在游戏窗口点击任意元素\n关闭此对话框后开始")
+        QMessageBox.information(self.gui, "提示", "进入点选模式\n在游戏窗口点击任意元素\n点击取消停止监听")
+
+        self._stop_requested = False
+        self.mouse_listener = None
 
         def on_click(x, y, button, pressed):
+            if self._stop_requested:
+                if self.mouse_listener:
+                    self.mouse_listener.stop()
+                return
             if not pressed:
                 return
             rel_x = x - left
             rel_y = y - top
             print("屏幕坐标(" + str(x) + "," + str(y) + ") -> 窗口相对坐标(" + str(rel_x) + ", " + str(rel_y) + ")")
-            name, ok = QInputDialog.getText(self.gui, "保存坐标", 
-                                                     "相对坐标: (" + str(rel_x) + ", " + str(rel_y) + ")\n输入元素名称（取消跳过）:")
+            name, ok = QInputDialog.getText(self.gui, "保存坐标",
+                                                     "相对坐标: (" + str(rel_x) + ", " + str(rel_y) + ")\n输入元素名称（取消停止监听）:")
             if ok and name.strip():
                 self.config[name.strip()] = [rel_x, rel_y]
                 self.save_config()
                 self.update_list()
+            # 无论是否保存，都停止监听
+            self.stop_listening()
 
         def listen():
             with mouse.Listener(on_click=on_click) as listener:
@@ -142,12 +161,12 @@ class CoordHelperFeature:
         left, top, width, height = win
         msg = "窗口位置：左" + str(left) + ", 上" + str(top) + " | 大小：" + str(width) + "x" + str(height)
         self.gui.status_bar.showMessage(msg)
-        
+
         monitor = {"left": left, "top": top, "width": width, "height": height}
         with mss.mss() as sct:
             screenshot = np.array(sct.grab(monitor))
             frame = cv2.cvtColor(screenshot, cv2.COLOR_BGRA2BGR)
-        
+
         drawing = False
         ix, iy = -1, -1
         fx, fy = -1, -1
@@ -167,14 +186,13 @@ class CoordHelperFeature:
 
         cv2.namedWindow("框选区域（拖框选择，C确认，R重置，ESC退出）")
         cv2.setMouseCallback("框选区域（拖框选择，C确认，R重置，ESC退出）", draw_rect)
-        
+
         while True:
             img = clone.copy()
             if ix != -1 and fx != -1:
                 cv2.rectangle(img, (ix, iy), (fx, fy), (0, 255, 0), 2)
                 w, h = abs(fx - ix), abs(fy - iy)
-                text = str(w) + "x" + str(h)
-                cv2.putText(img, text, (ix, iy - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
+                cv2.putText(img, str(w) + "x" + str(h), (ix, iy - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
             cv2.imshow("框选区域（拖框选择，C确认，R重置，ESC退出）", img)
             key = cv2.waitKey(1) & 0xFF
             if key == ord('r'):
@@ -189,7 +207,7 @@ class CoordHelperFeature:
                 rel_w = x2 - x1
                 rel_h = y2 - y1
                 msg = "相对坐标: 左" + str(rel_x1) + ", 上" + str(rel_y1) + ", 宽" + str(rel_w) + ", 高" + str(rel_h)
-                name, ok = QInputDialog.getText(self.gui, "保存区域", 
+                name, ok = QInputDialog.getText(self.gui, "保存区域",
                                                         msg + "\n输入区域名称（取消跳过）:")
                 if ok and name.strip():
                     self.config[name.strip()] = [rel_x1, rel_y1, rel_w, rel_h]
