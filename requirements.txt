@@ -17,3 +17,4 @@ langchain
 langchain_community
 openai
 pywin32>=306
+pynput
