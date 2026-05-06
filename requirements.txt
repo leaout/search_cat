@@ -9,12 +9,11 @@ ddddocr
 onnxruntime==1.17.1
 pygetwindow
 mss
-FuzzyWuzzy
-tk
+thefuzz
 keyboard
 SpeechRecognition
 pyaudio
 langchain
 langchain_community
 openai
-pywin32==311
+pywin32>=306
