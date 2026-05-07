@@ -234,18 +234,19 @@ class OCRWorker(QThread):
         except Exception as e:
             self.error_occurred.emit(f"自动点击失败: {str(e)}")
 
-# ========== 悬浮窗（无修改） ==========
+# ========== 悬浮窗 ==========
 class FloatingWindow(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("OCR结果")
         self.setWindowFlags(Qt.WindowStaysOnTopHint | Qt.FramelessWindowHint)
-        self.setGeometry(100, 100, 400, 150)
+        self.setFixedSize(400, 120)
         
         layout = QVBoxLayout()
-        self.result_display = QLineEdit()
+        self.result_display = QTextEdit()
         self.result_display.setReadOnly(True)
-        self.result_display.setStyleSheet("QLineEdit { background-color: white; border: 1px solid gray; padding: 5px; }")
+        self.result_display.setFixedHeight(80)
+        self.result_display.setStyleSheet("QTextEdit { background-color: white; border: 1px solid gray; padding: 5px; font-size: 14px; }")
         layout.addWidget(self.result_display)
         self.setLayout(layout)
         
