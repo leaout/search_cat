@@ -273,7 +273,7 @@ class Ocr:
 
     def display_text_positions(self, data: List[List[Any]] = None) -> None:
         """
-        显示所有文本（ddddocr不提供位置信息）
+        显示所有文本及其位置
 
         参数:
         data (List[List[Any]]): OCR识别结果的数据。
@@ -284,8 +284,9 @@ class Ocr:
         data = data if data else self.data
         if data is None: return
         for item in data:
-            text = item[1][0] if isinstance(item[1], list) else item[1]
-            print(f"Text: {text}")
+            if len(item) >= 2:
+                text = item[1][0] if isinstance(item[1], (list, tuple)) else str(item[1])
+                print(f"Text: {text}")
 
 
 if __name__ == "__main__":
