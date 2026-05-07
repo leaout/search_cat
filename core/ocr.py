@@ -107,13 +107,13 @@ class Ocr:
         if isinstance(img_data, str):
             result = self.ocr.ocr(img_data, cls=True)
         else:
-            import tempfile
-            with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as tmp:
-                tmp.write(img_data)
-                tmp_path = tmp.name
-            result = self.ocr.ocr(tmp_path, cls=True)
-            import os
-            os.unlink(tmp_path)
+            # img_data is bytes, convert to numpy array directly
+            nparr = np.frombuffer(img_data, np.uint8)
+            img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+            if img is None:
+                self.data = []
+                return []
+            result = self.ocr.ocr(img, cls=True)
         self.data = result[0] if result and result[0] else []
         if simple: return self.get_all_text(self.data)
         return self.data
