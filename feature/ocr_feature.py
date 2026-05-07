@@ -234,32 +234,12 @@ class OCRWorker(QThread):
         except Exception as e:
             self.error_occurred.emit(f"自动点击失败: {str(e)}")
 
-# ========== 悬浮窗 ==========
-class FloatingWindow(QWidget):
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setWindowTitle("OCR结果")
-        self.setWindowFlags(Qt.WindowStaysOnTopHint | Qt.FramelessWindowHint)
-        self.setFixedSize(400, 120)
-        
-        layout = QVBoxLayout()
-        self.result_display = QTextEdit()
-        self.result_display.setReadOnly(True)
-        self.result_display.setFixedHeight(80)
-        self.result_display.setStyleSheet("QTextEdit { background-color: white; border: 1px solid gray; padding: 5px; font-size: 14px; }")
-        layout.addWidget(self.result_display)
-        self.setLayout(layout)
-        
-    def update_result(self, text):
-        self.result_display.setText(text)
-
 # ========== 主控类（外部控制层） ==========
 class OCRFeature(QObject):
     def __init__(self, parent):
         super().__init__(parent)
         self.parent = parent
         self.answer_set = []
-        self.floating_window = None
         self.unmatched_file = "data/unmatched_questions.txt"
         self.running = False
         
@@ -274,7 +254,6 @@ class OCRFeature(QObject):
         self.ocr_worker.status_updated.connect(self.on_status_updated)
         
         self.selected_region = None
-        self.floating_window = FloatingWindow()
         
     def create_ui(self):
         from PyQt5.QtWidgets import QVBoxLayout, QHBoxLayout
@@ -387,9 +366,6 @@ class OCRFeature(QObject):
             self.record_unmatched_question(question)
         if hasattr(self, 'result_display') and self.result_display:
             self.result_display.setText(result_text)
-        # 更新悬浮窗
-        if self.floating_window:
-            self.floating_window.update_result(result_text)
 
     def on_error_occurred(self, error_msg):
         """接收错误信息（主线程显示）"""
@@ -417,6 +393,4 @@ class OCRFeature(QObject):
     def __del__(self):
         """析构：确保线程停止"""
         self.stop_worker()
-        if self.floating_window:
-            self.floating_window.close()
         keyboard.remove_hotkey('F1')
