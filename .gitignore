@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+
+# Virtual environment
+.venv/
+venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+
+# Windows
+Thumbs.db
+
+# Config (runtime generated)
+data/ui_coords.json
+data/unmatched_questions.txt
+
+# Debug
+debug_screenshot.png
+
+# Other
+license.json
+search_cat/
