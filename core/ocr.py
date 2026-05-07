@@ -106,8 +106,11 @@ class Ocr:
     def do_ocr_ext(self, img_data, simple=False) -> List:
         if isinstance(img_data, str):
             result = self.ocr.ocr(img_data, cls=True)
+        elif isinstance(img_data, np.ndarray):
+            # img_data is already a numpy array, pass directly to PaddleOCR
+            result = self.ocr.ocr(img_data, cls=True)
         else:
-            # img_data is bytes, convert to numpy array directly
+            # img_data is bytes, convert to numpy array
             nparr = np.frombuffer(img_data, np.uint8)
             img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
             if img is None:
