@@ -5,8 +5,8 @@ matplotlib
 pillow
 numpy<2
 setuptools
-ddddocr
-onnxruntime==1.17.1
+paddlepaddle==2.6.0
+paddleocr==2.7.0.3
 pygetwindow
 mss
 thefuzz

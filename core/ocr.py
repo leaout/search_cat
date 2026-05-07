@@ -4,12 +4,12 @@ import csv
 import json
 from PIL import Image, ImageDraw, ImageFont
 import numpy as np
-import ddddocr
+from paddleocr import PaddleOCR
 from typing import List, Tuple, Any
 
 class Ocr:
     def __init__(self) -> None:
-        self.ocr = ddddocr.DdddOcr(beta=True, show_ad=False)
+        self.ocr = PaddleOCR(use_angle_cls=True, lang='ch', show_log=False)
         self.data = None  # 存储OCR识别结果
 
     def multi_scale_template_match(self, main_image_path, template_image_path, method=cv2.TM_CCOEFF_NORMED, threshold=0.6, show=False):
@@ -98,25 +98,25 @@ class Ocr:
         返回:
         List: OCR识别结果
         """
-        with open(file_path, 'rb') as f:
-            img_bytes = f.read()
-        text = self.ocr.classification(img_bytes)
-        data = [[[0, 0], [0, 0], [0, 0], [0, 0]], [text, 1.0]]
-        if simple: return self.get_all_text([data])
-        self.data = [data]
-        return [data]
+        result = self.ocr.ocr(file_path, cls=True)
+        self.data = result[0] if result and result[0] else []
+        if simple: return self.get_all_text(self.data)
+        return self.data
 
     def do_ocr_ext(self, img_data, simple=False) -> List:
         if isinstance(img_data, str):
-            with open(img_data, 'rb') as f:
-                img_bytes = f.read()
+            result = self.ocr.ocr(img_data, cls=True)
         else:
-            img_bytes = img_data
-        text = self.ocr.classification(img_bytes)
-        data = [[[0, 0], [0, 0], [0, 0], [0, 0]], [text, 1.0]]
-        if simple: return self.get_all_text([data])
-        self.data = [data]
-        return [data]
+            import tempfile
+            with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as tmp:
+                tmp.write(img_data)
+                tmp_path = tmp.name
+            result = self.ocr.ocr(tmp_path, cls=True)
+            import os
+            os.unlink(tmp_path)
+        self.data = result[0] if result and result[0] else []
+        if simple: return self.get_all_text(self.data)
+        return self.data
     
     def search_text(self, query: str, data: List[List[Any]] = None, threshold: float = 0.6) -> List[Tuple[str, Any]]:
         """
@@ -136,18 +136,20 @@ class Ocr:
         if data is None: return results
         
         for item in data:
-            text = item[1][0] if isinstance(item[1], list) else item[1]
-            similarity = difflib.SequenceMatcher(None, query, text).ratio()
-            if similarity >= threshold or query in text:
-                results.append({'text': text, 
-                                'similarity': similarity, 
-                                'confidence': 1.0, 
-                                'position': {
-                                    'p': [(0, 0), (0, 0), (0, 0), (0, 0)],
-                                    'c': (0, 0),
-                                    'w': 0,
-                                    'h': 0
-                                }})
+            if len(item) >= 2:
+                text = item[1][0] if isinstance(item[1], (list, tuple)) else str(item[1])
+                confidence = item[1][1] if isinstance(item[1], (list, tuple)) and len(item[1]) > 1 else 1.0
+                similarity = difflib.SequenceMatcher(None, query, text).ratio()
+                if similarity >= threshold or query in text:
+                    results.append({'text': text, 
+                                    'similarity': similarity, 
+                                    'confidence': confidence, 
+                                    'position': {
+                                        'p': item[0] if len(item[0]) == 4 else [(0, 0), (0, 0), (0, 0), (0, 0)],
+                                        'c': (0, 0),
+                                        'w': 0,
+                                        'h': 0
+                                    }})
         
         results.sort(key=lambda x: x['similarity'], reverse=True)
         return results
@@ -208,11 +210,9 @@ class Ocr:
         res = []
         if data is None: return res
         for item in data:
-            if isinstance(item[1], list):
-                text = str(item[1][0])
-            else:
-                text = str(item[1])
-            res.append(text)
+            if len(item) >= 2:
+                text = item[1][0] if isinstance(item[1], (list, tuple)) else str(item[1])
+                res.append(text)
         return res
 
     def filter_high_confidence(self, threshold: float = 0.9, data: List[List[Any]] = None) -> List[str]:
@@ -228,7 +228,14 @@ class Ocr:
         """
         data = data if data else self.data
         if data is None: return []
-        return [item[1][0] if isinstance(item[1], list) else item[1] for item in data]
+        result = []
+        for item in data:
+            if len(item) >= 2:
+                text = item[1][0] if isinstance(item[1], (list, tuple)) else str(item[1])
+                confidence = item[1][1] if isinstance(item[1], (list, tuple)) and len(item[1]) > 1 else 1.0
+                if confidence >= threshold:
+                    result.append(text)
+        return result
 
     def export_to_file(self, file_path: str, file_format: str = 'json', data: List[List[Any]] = None) -> None:
         """
@@ -247,14 +254,20 @@ class Ocr:
         
         if file_format == 'json':
             with open(file_path, 'w', encoding='utf-8') as f:
-                json.dump([item[1][0] if isinstance(item[1], list) else item[1] for item in data], f, ensure_ascii=False, indent=4)
+                texts = []
+                for item in data:
+                    if len(item) >= 2:
+                        text = item[1][0] if isinstance(item[1], (list, tuple)) else str(item[1])
+                        texts.append(text)
+                json.dump(texts, f, ensure_ascii=False, indent=4)
         elif file_format == 'csv':
             with open(file_path, 'w', newline='', encoding='utf-8') as f:
                 writer = csv.writer(f)
                 writer.writerow(['Text'])
                 for item in data:
-                    text = item[1][0] if isinstance(item[1], list) else item[1]
-                    writer.writerow([text])
+                    if len(item) >= 2:
+                        text = item[1][0] if isinstance(item[1], (list, tuple)) else str(item[1])
+                        writer.writerow([text])
         else:
             raise ValueError("Unsupported file format. Use 'json' or 'csv'.")
 
