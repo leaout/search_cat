@@ -4,8 +4,6 @@ from PyQt5.QtCore import Qt, QTimer, QObject, pyqtSignal, QThread, pyqtSlot, QMu
 import os
 import keyboard
 import time
-import cv2
-import numpy as np
 # import psutil
 from core.ocr import Ocr
 from core.winoperator import WinOperator
@@ -205,19 +203,10 @@ class OCRWorker(QThread):
         """线程内OCR识别"""
         try:
             start_time = time.time()
-            # 保存截图用于调试
-            debug_path = "debug_screenshot.png"
-            if isinstance(screenshot_data, np.ndarray):
-                cv2.imwrite(debug_path, cv2.cvtColor(screenshot_data, cv2.COLOR_RGB2BGR))
-            else:
-                with open(debug_path, 'wb') as f:
-                    f.write(screenshot_data)
-            self.status_updated.emit(f"调试: 截图已保存到 {debug_path}")
-            
             question = ''.join(self.ocr.do_ocr_ext(screenshot_data, simple=True))
             question = question.replace("咸鱼游戏", "").strip()
             ocr_time = time.time() - start_time
-            self.status_updated.emit(f"OCR耗时: {ocr_time:.3f}秒, 识别结果: {question}")
+            self.status_updated.emit(f"OCR耗时: {ocr_time:.3f}秒")
             return question
         except Exception as e:
             self.error_occurred.emit(f"OCR识别失败: {str(e)}")
