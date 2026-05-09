@@ -1,6 +1,6 @@
 from PyQt5.QtWidgets import (QPushButton, QLabel, QVBoxLayout,
                             QHBoxLayout, QGroupBox, QLineEdit, QComboBox,
-                            QSpinBox, QTextEdit)
+                            QSpinBox, QTextEdit, QCheckBox)
 from PyQt5.QtCore import Qt, QTimer, QThread, pyqtSignal
 import pygetwindow as gw
 import keyboard
@@ -15,7 +15,7 @@ class WindowKeyWorker(QThread):
     error_occurred = pyqtSignal(str)  # 错误信号
     finished_signal = pyqtSignal()  # 完成信号
 
-    def __init__(self, key_combination, delay_between_windows=0.5, window_filter="QQ三国", loop_interval=10):
+    def __init__(self, key_combination, delay_between_windows=0.5, window_filter="QQ三国", loop_interval=10, background_mode=False):
         super().__init__()
         self.key_combination = key_combination
         self.delay_between_windows = delay_between_windows
@@ -23,6 +23,7 @@ class WindowKeyWorker(QThread):
         self.loop_interval = loop_interval  # 循环间隔（秒）
         self.is_running = False
         self.key_sequence = self._parse_key_combination(key_combination)
+        self.background_mode = background_mode
 
     def _parse_key_combination(self, combination):
         """解析按键组合字符串"""
@@ -81,17 +82,25 @@ class WindowKeyWorker(QThread):
                     try:
                         self.progress_updated.emit(f"第 {loop_count} 轮 - 处理窗口 {i+1}/{len(target_windows)}: {win.title}")
 
-                        win.activate()
-                        time.sleep(0.2)
-
-                        for key_group in self.key_sequence:
-                            if isinstance(key_group, list) and len(key_group) > 1:
-                                win32_keyboard.press_combination(*key_group)
-                            else:
-                                key = key_group[0] if isinstance(key_group, list) else key_group
-                                win32_keyboard.press(key)
-
-                            time.sleep(0.1)
+                        if self.background_mode:
+                            hwnd = win._hWnd
+                            for key_group in self.key_sequence:
+                                if isinstance(key_group, list) and len(key_group) > 1:
+                                    win32_keyboard.background_press_combination(hwnd, *key_group)
+                                else:
+                                    key = key_group[0] if isinstance(key_group, list) else key_group
+                                    win32_keyboard.background_press(hwnd, key)
+                                time.sleep(0.1)
+                        else:
+                            win.activate()
+                            time.sleep(0.2)
+                            for key_group in self.key_sequence:
+                                if isinstance(key_group, list) and len(key_group) > 1:
+                                    win32_keyboard.press_combination(*key_group)
+                                else:
+                                    key = key_group[0] if isinstance(key_group, list) else key_group
+                                    win32_keyboard.press(key)
+                                time.sleep(0.1)
 
                         if i < len(target_windows) - 1:
                             time.sleep(self.delay_between_windows)
@@ -182,6 +191,10 @@ class WindowKeyFeature:
         self.loop_interval_input.setSingleStep(5)
         loop_layout.addWidget(self.loop_interval_input)
 
+        self.background_cb = QCheckBox('后台模式')
+        self.background_cb.setToolTip('启用后不激活窗口，直接向后台发送按键')
+        loop_layout.addWidget(self.background_cb)
+
         loop_layout.addWidget(QLabel('说明: 每次循环完成后等待此时间再重新开始'))
         window_key_layout.addLayout(loop_layout)
 
@@ -238,7 +251,7 @@ class WindowKeyFeature:
             return
         delay = self.delay_input.value()
         loop_interval = self.loop_interval_input.value()
-        self.worker = WindowKeyWorker(key_combination, delay, window_filter, loop_interval)
+        self.worker = WindowKeyWorker(key_combination, delay, window_filter, loop_interval, self.background_cb.isChecked())
         self.worker.status_updated.connect(self.on_status_updated)
         self.worker.progress_updated.connect(self.on_progress_updated)
         self.worker.error_occurred.connect(self.on_error_occurred)

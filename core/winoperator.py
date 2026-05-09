@@ -148,6 +148,10 @@ class Win32Mouse:
         return x1 <= x <= x2 and y1 <= y <= y2
 
 
+# 后台按键常量
+WM_KEYDOWN = 0x0100
+WM_KEYUP = 0x0101
+
 class Win32Keyboard:
     """高性能Win32键盘操作类"""
     
@@ -236,6 +240,23 @@ class Win32Keyboard:
         vk = self._get_vk_code(key)
         if vk:
             win32api.keybd_event(vk, 0, win32con.KEYEVENTF_KEYUP, 0)
+
+    def background_press(self, hwnd: int, key: str, hold_time: float = 0):
+        """向后台窗口发送按键（不激活窗口）"""
+        vk = self._get_vk_code(key)
+        if vk:
+            win32api.PostMessage(hwnd, WM_KEYDOWN, vk, 0)
+            if hold_time > 0:
+                time.sleep(hold_time)
+            win32api.PostMessage(hwnd, WM_KEYUP, vk, 0)
+
+    def background_press_combination(self, hwnd: int, *keys):
+        """向后台窗口发送组合键（不激活窗口）"""
+        vk_codes = [self._get_vk_code(k) for k in keys if self._get_vk_code(k)]
+        for vk in vk_codes:
+            win32api.PostMessage(hwnd, WM_KEYDOWN, vk, 0)
+        for vk in reversed(vk_codes):
+            win32api.PostMessage(hwnd, WM_KEYUP, vk, 0)
 
 class WinOperator:
     def __init__(self, window=None):
