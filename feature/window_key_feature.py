@@ -1,10 +1,10 @@
 from PyQt5.QtWidgets import (QPushButton, QLabel, QVBoxLayout,
-                            QHBoxLayout, QGroupBox, QLineEdit, QComboBox,
+                            QHBoxLayout, QGroupBox, QLineEdit,
                             QSpinBox, QTextEdit, QCheckBox)
-from PyQt5.QtCore import Qt, QTimer, QThread, pyqtSignal
-import pygetwindow as gw
+from PyQt5.QtCore import Qt, QThread, pyqtSignal
 import keyboard
 import time
+import win32gui
 from core.winhandler import WindowHandler
 from core.winoperator import Win32Keyboard
 
@@ -15,12 +15,12 @@ class WindowKeyWorker(QThread):
     error_occurred = pyqtSignal(str)  # 错误信号
     finished_signal = pyqtSignal()  # 完成信号
 
-    def __init__(self, key_combination, delay_between_windows=0.5, window_filter="QQ三国", loop_interval=10, background_mode=False):
+    def __init__(self, key_combination, target_hwnd, delay_between_windows=0.5, loop_interval=10, background_mode=False):
         super().__init__()
         self.key_combination = key_combination
+        self.target_hwnd = target_hwnd
         self.delay_between_windows = delay_between_windows
-        self.window_filter = window_filter
-        self.loop_interval = loop_interval  # 循环间隔（秒）
+        self.loop_interval = loop_interval
         self.is_running = False
         self.key_sequence = self._parse_key_combination(key_combination)
         self.background_mode = background_mode
@@ -52,7 +52,7 @@ class WindowKeyWorker(QThread):
         return sequence if sequence else [['space']]
 
     def run(self):
-        """线程主循环 - 支持循环执行"""
+        """线程主循环 - 对单个目标窗口循环按键"""
         try:
             self.is_running = True
             loop_count = 0
@@ -60,74 +60,47 @@ class WindowKeyWorker(QThread):
 
             while self.is_running:
                 loop_count += 1
-                self.status_updated.emit(f"开始第 {loop_count} 轮扫描...")
+                self.status_updated.emit(f"开始第 {loop_count} 轮按键...")
 
-                all_windows = gw.getAllWindows()
-                target_windows = []
+                try:
+                    if self.background_mode:
+                        hwnd = self.target_hwnd
+                        for key_group in self.key_sequence:
+                            if isinstance(key_group, list) and len(key_group) > 1:
+                                win32_keyboard.background_press_combination(hwnd, *key_group)
+                            else:
+                                key = key_group[0] if isinstance(key_group, list) else key_group
+                                win32_keyboard.background_press(hwnd, key)
+                            time.sleep(0.1)
+                    else:
+                        win32gui.SetForegroundWindow(self.target_hwnd)
+                        time.sleep(0.2)
+                        for key_group in self.key_sequence:
+                            if isinstance(key_group, list) and len(key_group) > 1:
+                                win32_keyboard.press_combination(*key_group)
+                            else:
+                                key = key_group[0] if isinstance(key_group, list) else key_group
+                                win32_keyboard.press(key)
+                            time.sleep(0.1)
 
-                for win in all_windows:
-                    if win.title and self.window_filter.lower() in win.title.lower():
-                        target_windows.append(win)
-
-                if not target_windows:
-                    self.error_occurred.emit(f"未找到包含 '{self.window_filter}' 的窗口")
-                    break
-
-                self.status_updated.emit(f"第 {loop_count} 轮: 找到 {len(target_windows)} 个目标窗口，开始处理...")
-
-                for i, win in enumerate(target_windows):
+                except Exception as e:
+                    self.error_occurred.emit(f"按键失败: {str(e)}")
                     if not self.is_running:
                         break
 
-                    try:
-                        self.progress_updated.emit(f"第 {loop_count} 轮 - 处理窗口 {i+1}/{len(target_windows)}: {win.title}")
-
-                        if self.background_mode:
-                            hwnd = win._hWnd
-                            for key_group in self.key_sequence:
-                                if isinstance(key_group, list) and len(key_group) > 1:
-                                    win32_keyboard.background_press_combination(hwnd, *key_group)
-                                else:
-                                    key = key_group[0] if isinstance(key_group, list) else key_group
-                                    win32_keyboard.background_press(hwnd, key)
-                                time.sleep(0.1)
-                        else:
-                            win.activate()
-                            time.sleep(0.2)
-                            for key_group in self.key_sequence:
-                                if isinstance(key_group, list) and len(key_group) > 1:
-                                    win32_keyboard.press_combination(*key_group)
-                                else:
-                                    key = key_group[0] if isinstance(key_group, list) else key_group
-                                    win32_keyboard.press(key)
-                                time.sleep(0.1)
-
-                        if i < len(target_windows) - 1:
-                            time.sleep(self.delay_between_windows)
-
-                    except Exception as e:
-                        self.error_occurred.emit(f"处理窗口 '{win.title}' 时出错: {str(e)}")
-                        continue
-
-                # 检查是否继续循环
                 if not self.is_running:
                     break
 
-                self.status_updated.emit(f"第 {loop_count} 轮处理完成，等待 {self.loop_interval} 秒后开始下一轮...")
-
-                # 等待循环间隔
+                self.status_updated.emit(f"第 {loop_count} 轮完成，等待 {self.loop_interval} 秒后下一轮...")
                 remaining_time = self.loop_interval
                 while remaining_time > 0 and self.is_running:
-                    time.sleep(min(1, remaining_time))  # 每秒检查一次停止状态
+                    time.sleep(min(1, remaining_time))
                     remaining_time -= 1
 
-            if self.is_running:
-                self.status_updated.emit("执行已停止")
-            else:
-                self.status_updated.emit("执行完成")
+            self.status_updated.emit("执行已停止")
 
         except Exception as e:
-            self.error_occurred.emit(f"执行过程中出错: {str(e)}")
+            self.error_occurred.emit(f"执行出错: {str(e)}")
         finally:
             self.is_running = False
 
@@ -140,28 +113,24 @@ class WindowKeyFeature:
         self.parent = parent
         self.worker = None
         self.is_running = False
+        self.selected_hwnd = None
 
     def create_ui(self):
-        self.group_box = QGroupBox("窗口批量按键")
+        self.group_box = QGroupBox("窗口按键")
         window_key_layout = QVBoxLayout(self.group_box)
 
-        # 第一行：窗口过滤器
-        filter_layout = QHBoxLayout()
-        filter_layout.addWidget(QLabel('窗口过滤:'))
-        self.window_filter_input = QLineEdit()
-        self.window_filter_input.setText('QQ三国')
-        self.window_filter_input.setPlaceholderText('输入窗口标题关键词，如: QQ三国')
-        filter_layout.addWidget(self.window_filter_input)
-
-        # 扫描窗口按钮
-        self.scan_btn = QPushButton('扫描窗口')
-        self.scan_btn.clicked.connect(self.scan_windows)
-        filter_layout.addWidget(self.scan_btn)
-
-        window_key_layout.addLayout(filter_layout)
+        # 第一行：选择窗口
+        window_layout = QHBoxLayout()
+        self.choose_btn = QPushButton('选择窗口')
+        self.choose_btn.clicked.connect(self.choose_window)
+        window_layout.addWidget(self.choose_btn)
+        self.window_label = QLabel('未选择窗口')
+        window_layout.addWidget(self.window_label)
+        window_layout.addStretch()
+        window_key_layout.addLayout(window_layout)
 
         # 说明文本
-        info_label = QLabel('说明: 支持按键组合，如 "space" 或 "ctrl+a->b" 或 "f5"')
+        info_label = QLabel('支持按键组合，如 "space" 或 "ctrl+a->b" 或 "f5"')
         info_label.setStyleSheet("color: gray; font-size: 11px;")
         window_key_layout.addWidget(info_label)
 
@@ -170,16 +139,14 @@ class WindowKeyFeature:
         key_layout.addWidget(QLabel('按键组合:'))
         self.key_input = QLineEdit()
         self.key_input.setText('space')
-        self.key_input.setPlaceholderText('输入按键组合，如: a->b-c ->space')
+        self.key_input.setPlaceholderText('如: a->b-c->space')
         key_layout.addWidget(self.key_input)
-
-        key_layout.addWidget(QLabel('窗口间隔(秒):'))
+        key_layout.addWidget(QLabel('间隔(秒):'))
         self.delay_input = QSpinBox()
         self.delay_input.setRange(0, 5)
         self.delay_input.setValue(1)
         self.delay_input.setSingleStep(1)
         key_layout.addWidget(self.delay_input)
-
         window_key_layout.addLayout(key_layout)
 
         # 第三行：循环设置
@@ -232,6 +199,14 @@ class WindowKeyFeature:
         self.parent.left_layout.addWidget(self.group_box)
         self.parent.left_layout.addStretch()
     
+    def choose_window(self):
+        handler = WindowHandler()
+        handler.choose_window()
+        if handler.window:
+            self.selected_hwnd = handler.window._hWnd
+            self.window_label.setText(handler.window.title)
+            self.status_label.setText('状态: 已选择窗口')
+
     def toggle(self):
         if self.is_running:
             self.stop()
@@ -241,17 +216,16 @@ class WindowKeyFeature:
     def start(self):
         if self.is_running:
             return
+        if not self.selected_hwnd:
+            self.status_label.setText('状态: 请先选择窗口')
+            return
         key_combination = self.key_input.text().strip()
         if not key_combination:
             self.status_label.setText('状态: 请先输入按键')
             return
-        window_filter = self.window_filter_input.text().strip()
-        if not window_filter:
-            self.status_label.setText('状态: 请先输入窗口过滤关键词')
-            return
         delay = self.delay_input.value()
         loop_interval = self.loop_interval_input.value()
-        self.worker = WindowKeyWorker(key_combination, delay, window_filter, loop_interval, self.background_cb.isChecked())
+        self.worker = WindowKeyWorker(key_combination, self.selected_hwnd, delay, loop_interval, self.background_cb.isChecked())
         self.worker.status_updated.connect(self.on_status_updated)
         self.worker.progress_updated.connect(self.on_progress_updated)
         self.worker.error_occurred.connect(self.on_error_occurred)
@@ -272,55 +246,6 @@ class WindowKeyFeature:
         if hasattr(self.parent, 'hotkey_status_label'):
             self.parent.hotkey_status_label.setText("○ 窗口按键 - 停止")
 
-    def start_execution(self):
-        """开始执行"""
-        if self.is_running:
-            return
-
-        key_combination = self.key_input.text().strip()
-        if not key_combination:
-            self.status_label.setText('状态: 请先输入按键')
-            return
-
-        window_filter = self.window_filter_input.text().strip()
-        if not window_filter:
-            self.status_label.setText('状态: 请先输入窗口过滤关键词')
-            return
-
-        delay = self.delay_input.value()
-        loop_interval = self.loop_interval_input.value()
-
-        # 创建工作线程
-        self.worker = WindowKeyWorker(key_combination, delay, window_filter, loop_interval)
-
-        # 连接信号
-        self.worker.status_updated.connect(self.on_status_updated)
-        self.worker.progress_updated.connect(self.on_progress_updated)
-        self.worker.error_occurred.connect(self.on_error_occurred)
-        # 注意：循环执行不会发出finished_signal，除非出错停止
-
-        # 清空进度显示
-        self.progress_display.clear()
-
-        # 启动线程
-        self.worker.start()
-        self.is_running = True
-        self.start_btn.setText('停止执行 (F2)')
-        self.status_label.setText('状态: 执行中...')
-
-    def stop_execution(self):
-        """停止执行"""
-        if not self.is_running:
-            return
-
-        if self.worker:
-            self.worker.stop()
-            self.worker.wait(2000)  # 等待线程结束
-
-        self.is_running = False
-        self.start_btn.setText('开始执行 (F2)')
-        self.status_label.setText('状态: 已停止')
-
     def on_status_updated(self, status):
         """状态更新"""
         self.status_label.setText(f'状态: {status}')
@@ -339,40 +264,3 @@ class WindowKeyFeature:
         """错误处理"""
         self.on_progress_updated(f"错误: {error}")
         self.status_label.setText('状态: 执行出错')
-
-    def scan_windows(self):
-        """扫描并显示匹配的窗口"""
-        window_filter = self.window_filter_input.text().strip()
-        if not window_filter:
-            self.progress_display.setText("请先输入窗口过滤关键词")
-            return
-
-        # 获取所有窗口
-        all_windows = gw.getAllWindows()
-        target_windows = []
-
-        # 过滤出目标窗口
-        for win in all_windows:
-            if win.title and window_filter.lower() in win.title.lower():
-                target_windows.append(win)
-
-        # 显示结果
-        if not target_windows:
-            self.progress_display.setText(f"未找到包含 '{window_filter}' 的窗口")
-        else:
-            result_text = f"找到 {len(target_windows)} 个匹配窗口:\n"
-            for i, win in enumerate(target_windows, 1):
-                result_text += f"{i}. {win.title}\n"
-            self.progress_display.setText(result_text)
-
-    def on_finished(self):
-        """执行完成"""
-        self.is_running = False
-        self.start_btn.setText('开始执行 (F2)')
-        self.status_label.setText('状态: 执行完成')
-        self.on_progress_updated("✓ 所有窗口处理完成")
-
-    def __del__(self):
-        """析构函数"""
-        self.stop_execution()
-        keyboard.remove_hotkey('F2')
