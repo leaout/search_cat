@@ -1,6 +1,6 @@
 from PyQt5.QtWidgets import (QPushButton, QLabel, QVBoxLayout,
                             QHBoxLayout, QGroupBox, QLineEdit,
-                            QSpinBox, QTextEdit, QCheckBox)
+                            QSpinBox, QDoubleSpinBox, QTextEdit, QCheckBox)
 from PyQt5.QtCore import Qt, QThread, pyqtSignal
 import keyboard
 import time
@@ -15,11 +15,11 @@ class WindowKeyWorker(QThread):
     error_occurred = pyqtSignal(str)  # 错误信号
     finished_signal = pyqtSignal()  # 完成信号
 
-    def __init__(self, key_combination, target_hwnd, delay_between_windows=0.5, loop_interval=10, background_mode=False):
+    def __init__(self, key_combination, target_hwnd, delay_between_keys=0.1, loop_interval=10, background_mode=False):
         super().__init__()
         self.key_combination = key_combination
         self.target_hwnd = target_hwnd
-        self.delay_between_windows = delay_between_windows
+        self.delay_between_keys = delay_between_keys
         self.loop_interval = loop_interval
         self.is_running = False
         self.key_sequence = self._parse_key_combination(key_combination)
@@ -71,17 +71,17 @@ class WindowKeyWorker(QThread):
                             else:
                                 key = key_group[0] if isinstance(key_group, list) else key_group
                                 win32_keyboard.background_press(hwnd, key)
-                            time.sleep(0.1)
+                            time.sleep(self.delay_between_keys)
                     else:
                         win32gui.SetForegroundWindow(self.target_hwnd)
-                        time.sleep(0.2)
+                        time.sleep(self.delay_between_keys)
                         for key_group in self.key_sequence:
                             if isinstance(key_group, list) and len(key_group) > 1:
                                 win32_keyboard.press_combination(*key_group)
                             else:
                                 key = key_group[0] if isinstance(key_group, list) else key_group
                                 win32_keyboard.press(key)
-                            time.sleep(0.1)
+                            time.sleep(self.delay_between_keys)
 
                 except Exception as e:
                     self.error_occurred.emit(f"按键失败: {str(e)}")
@@ -142,20 +142,22 @@ class WindowKeyFeature:
         self.key_input.setPlaceholderText('如: a->b-c->space')
         key_layout.addWidget(self.key_input)
         key_layout.addWidget(QLabel('间隔(秒):'))
-        self.delay_input = QSpinBox()
+        self.delay_input = QDoubleSpinBox()
         self.delay_input.setRange(0, 5)
-        self.delay_input.setValue(1)
-        self.delay_input.setSingleStep(1)
+        self.delay_input.setValue(0.1)
+        self.delay_input.setSingleStep(0.1)
+        self.delay_input.setDecimals(1)
         key_layout.addWidget(self.delay_input)
         window_key_layout.addLayout(key_layout)
 
         # 第三行：循环设置
         loop_layout = QHBoxLayout()
         loop_layout.addWidget(QLabel('循环间隔(秒):'))
-        self.loop_interval_input = QSpinBox()
-        self.loop_interval_input.setRange(5, 300)
-        self.loop_interval_input.setValue(30)
-        self.loop_interval_input.setSingleStep(5)
+        self.loop_interval_input = QDoubleSpinBox()
+        self.loop_interval_input.setRange(0.1, 300)
+        self.loop_interval_input.setValue(5)
+        self.loop_interval_input.setSingleStep(0.5)
+        self.loop_interval_input.setDecimals(1)
         loop_layout.addWidget(self.loop_interval_input)
 
         self.background_cb = QCheckBox('后台模式')

@@ -151,6 +151,25 @@ class Win32Mouse:
 # 后台按键常量
 WM_KEYDOWN = 0x0100
 WM_KEYUP = 0x0101
+WM_CHAR = 0x0102
+WM_SYSKEYDOWN = 0x0104
+WM_SYSKEYUP = 0x0105
+
+# 需要 ext key flag 的按键 VK 码
+_EXTENDED_VK = {0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27, 0x28, 0x2D, 0x2E, 0x5B, 0x5C, 0x5D}
+
+
+def _make_key_lparam(vk_code: int, is_keyup: bool = False) -> int:
+    """构造键盘消息的 lParam"""
+    scan = user32.MapVirtualKeyW(vk_code, 0) & 0xFF
+    lparam = 1  # repeat count = 1
+    lparam |= (scan << 16)  # bits 16-23: scan code
+    if vk_code in _EXTENDED_VK:
+        lparam |= (1 << 24)  # bit 24: extended key
+    if is_keyup:
+        lparam |= (1 << 30)  # bit 30: previous key state (was down)
+        lparam |= (1 << 31)  # bit 31: transition (released)
+    return lparam
 
 class Win32Keyboard:
     """高性能Win32键盘操作类"""
@@ -245,18 +264,25 @@ class Win32Keyboard:
         """向后台窗口发送按键（不激活窗口）"""
         vk = self._get_vk_code(key)
         if vk:
-            win32api.PostMessage(hwnd, WM_KEYDOWN, vk, 0)
+            down_lparam = _make_key_lparam(vk, is_keyup=False)
+            up_lparam = _make_key_lparam(vk, is_keyup=True)
+            win32api.SendMessage(hwnd, WM_KEYDOWN, vk, down_lparam)
+            time.sleep(0.02)
             if hold_time > 0:
                 time.sleep(hold_time)
-            win32api.PostMessage(hwnd, WM_KEYUP, vk, 0)
+            win32api.SendMessage(hwnd, WM_KEYUP, vk, up_lparam)
 
     def background_press_combination(self, hwnd: int, *keys):
         """向后台窗口发送组合键（不激活窗口）"""
         vk_codes = [self._get_vk_code(k) for k in keys if self._get_vk_code(k)]
         for vk in vk_codes:
-            win32api.PostMessage(hwnd, WM_KEYDOWN, vk, 0)
+            lp = _make_key_lparam(vk, False)
+            win32api.SendMessage(hwnd, WM_KEYDOWN, vk, lp)
+            time.sleep(0.02)
         for vk in reversed(vk_codes):
-            win32api.PostMessage(hwnd, WM_KEYUP, vk, 0)
+            lp = _make_key_lparam(vk, True)
+            win32api.SendMessage(hwnd, WM_KEYUP, vk, lp)
+            time.sleep(0.02)
 
 class WinOperator:
     def __init__(self, window=None):
