@@ -13,6 +13,7 @@ from feature.ocr_feature import OCRFeature
 from feature.mouse_clicker_feature import MouseClickerFeature
 from feature.window_key_feature import WindowKeyFeature
 from feature.coord_helper_feature import CoordHelperFeature
+from feature.yolo_feature import YOLOFeature
 
 class BaseGUI(QMainWindow):
     def __init__(self):
@@ -49,6 +50,18 @@ class BaseGUI(QMainWindow):
         """检查许可证是否有效"""
         now = datetime.now()
         return now < self.expiry_date
+    
+    def require_license(self):
+        """检查许可证，过期则弹窗提示并返回False"""
+        if self.check_license_valid():
+            return True
+        from PyQt5.QtWidgets import QMessageBox
+        QMessageBox.warning(
+            self, "许可证已过期",
+            f"软件试用期已于 {self.expiry_date.strftime('%Y-%m-%d')} 到期，所有功能已禁用。\n"
+            "请联系管理员获取新的许可证。"
+        )
+        return False
     
     def get_remaining_days(self):
         """获取剩余天数"""
@@ -116,6 +129,9 @@ class BaseGUI(QMainWindow):
         else:
             self.license_label.setText("软件已过期!")
             self.license_label.setStyleSheet("color: red; font-weight: bold;")
+            # 如果是QSearchApp实例，过期后禁用功能
+            if hasattr(self, '_update_feature_enabled_state'):
+                self._update_feature_enabled_state()
     
     def update_question_count(self, count):
         """更新题库数量显示"""
@@ -140,11 +156,15 @@ class QSearchApp(BaseGUI):
         self.coord_helper_feature = CoordHelperFeature(self)
         self.coord_helper_feature.create_ui()
         
+        self.yolo_feature = YOLOFeature(self)
+        self.yolo_feature.create_ui()
+        
         self.feature_groups = {
             'OCR识别': self.ocr_feature.group_box,
             '连点器': self.clicker_feature.group_box,
             '窗口按键': self.window_key_feature.group_box,
             '坐标助手': self.coord_helper_feature.group_box,
+            'YOLO检测': self.yolo_feature.group_box,
         }
         
         self.feature_combo.currentTextChanged.connect(self.switch_feature)
@@ -152,11 +172,29 @@ class QSearchApp(BaseGUI):
         
         keyboard.add_hotkey('home', self.toggle_current_feature)
         
+        # 启动时检查许可证，过期则禁用功能
+        self._update_feature_enabled_state()
+        
+    def _update_feature_enabled_state(self):
+        """根据许可证状态启用/禁用功能按钮"""
+        if not hasattr(self, 'start_feature_btn'):
+            return
+        is_valid = self.check_license_valid()
+        self.start_feature_btn.setEnabled(is_valid)
+        self.feature_combo.setEnabled(is_valid)
+        if not is_valid:
+            self.start_feature_btn.setText('已过期')
+            self.start_feature_btn.setToolTip('软件试用期已过期，所有功能已禁用')
+        # 禁用/启用所有功能模块的group box
+        if hasattr(self, 'feature_groups'):
+            for group in self.feature_groups.values():
+                group.setEnabled(is_valid)
+        
     def setup_feature_selector(self):
         selector_layout = QHBoxLayout()
         selector_layout.addWidget(QLabel('当前功能:'))
         self.feature_combo = QComboBox()
-        self.feature_combo.addItems(['OCR识别', '连点器', '窗口按键', '坐标助手'])
+        self.feature_combo.addItems(['OCR识别', '连点器', '窗口按键', '坐标助手', 'YOLO检测'])
         selector_layout.addWidget(self.feature_combo)
         
         self.start_feature_btn = QPushButton('启动 (Home)')
@@ -174,6 +212,9 @@ class QSearchApp(BaseGUI):
         if not self.current_feature:
             return
         
+        if not self.require_license():
+            return
+        
         if self.current_feature == 'OCR识别':
             self.ocr_feature.toggle()
         elif self.current_feature == '连点器':
@@ -182,6 +223,8 @@ class QSearchApp(BaseGUI):
             self.window_key_feature.toggle()
         elif self.current_feature == '坐标助手':
             self.coord_helper_feature.toggle() if hasattr(self.coord_helper_feature, 'toggle') else None
+        elif self.current_feature == 'YOLO检测':
+            self.yolo_feature.toggle()
         
     def setup_left_panel(self):
         """左侧功能面板由各feature自行创建"""
