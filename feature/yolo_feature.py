@@ -162,6 +162,13 @@ class YOLOFeature:
         self.running = False
         self.selected_region = None
         self.worker = None
+        # 在主线程预加载 ultralytics/torch，避免 QThread 中 DLL 初始化失败
+        try:
+            from ultralytics import YOLO
+            self._preloaded = True
+        except Exception as e:
+            self._preloaded = False
+            print(f"YOLO 预加载失败: {e}")
 
     def create_ui(self):
         self.group_box = QGroupBox("YOLO目标检测")
