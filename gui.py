@@ -1,14 +1,22 @@
+# 必须在 PyQt5 之前加载 torch，否则 DLL 会冲突
+import sys
+import json
+import os
+os.environ.setdefault('KMP_DUPLICATE_LIB_OK', 'TRUE')
+try:
+    import torch
+except Exception:
+    pass
+
+import keyboard
+from datetime import datetime, timedelta
+
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QVBoxLayout, QHBoxLayout,
                             QWidget, QGroupBox, QTextEdit, QLabel, QPushButton, 
                             QLineEdit, QSpinBox, QCheckBox, QComboBox, QGridLayout,
                             QStatusBar, QFrame, QListWidget)
 from PyQt5.QtCore import Qt, QMetaObject, QObject, Q_ARG, QTimer, QDateTime
 from PyQt5.QtGui import QIcon, QFont
-import sys
-import json
-import os
-import keyboard
-from datetime import datetime, timedelta
 from feature.ocr_feature import OCRFeature
 from feature.mouse_clicker_feature import MouseClickerFeature
 from feature.window_key_feature import WindowKeyFeature
