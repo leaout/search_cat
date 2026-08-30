@@ -199,14 +199,17 @@ class WindowKeyFeature:
 
         # 添加到左侧布局
         self.parent.left_layout.addWidget(self.group_box)
-        self.parent.left_layout.addStretch()
     
     def choose_window(self):
         handler = WindowHandler()
         handler.choose_window()
         if handler.window:
             self.selected_hwnd = handler.window._hWnd
-            self.window_label.setText(handler.window.title)
+            info = handler.window_info or {}
+            alias = f"〔{info.get('alias')}〕 " if info.get('alias') else ''
+            number = f" #{info.get('number')}" if info.get('number') else ''
+            pid = f" · PID {info.get('pid')}" if info.get('pid') else ''
+            self.window_label.setText(f"{alias}{handler.window.title}{number}{pid}")
             self.status_label.setText('状态: 已选择窗口')
 
     def toggle(self):

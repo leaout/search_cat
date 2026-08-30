@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-Search Cat (搜索猫) is a Python desktop application for search assistance and automated test answering. It uses PyQt5 for GUI, ddddocr for text recognition, and Windows APIs for automation.
+Search Cat (搜索猫) is a Windows-only Python desktop application for OCR-assisted answering and desktop automation. The current implementation uses PyQt5 for the GUI, PaddleOCR for Chinese text recognition, RapidFuzz for question matching, Ultralytics YOLO for optional object detection, and Windows APIs for mouse/keyboard automation.
 
 ## Build & Run Commands
 
@@ -28,11 +28,11 @@ python -m venv .venv
 ### Dependencies (from requirements.txt)
 - PyQt5==5.15.9
 - pyautogui, opencv-python, pillow, numpy<2
-- ddddocr (lightweight OCR, replaces PaddleOCR; requires onnxruntime==1.17.1)
-- onnxruntime==1.17.1 (pinned for Windows compatibility)
+- paddlepaddle==2.6.0 and paddleocr==2.7.0.3
 - pywin32==311, pygetwindow, mss
-- FuzzyWuzzy/rapidfuzz, keyboard
+- thefuzz/rapidfuzz, keyboard
 - langchain, langchain_community, openai
+- ultralytics for YOLO detection
 
 ## Code Style Guidelines
 
@@ -127,7 +127,10 @@ search_cat/
 ├── feature/
 │   ├── ocr_feature.py   # OCR UI feature
 │   ├── mouse_clicker_feature.py
-│   └── window_key_feature.py
+│   ├── window_key_feature.py
+│   ├── coord_helper_feature.py
+│   ├── yolo_feature.py
+│   └── audio_feature.py # Present but not wired into the main GUI
 ├── data/                # Question databases
 └── icon/                # Application icon
 ```
@@ -189,4 +192,5 @@ def find_best_match_simple(properties, query, threshold=40):
 ## Notes
 - This is a Windows-only application
 - Requires VC_redist.x64 on Windows
-- Data files in `data/` are JSON format with `q` (question) and `ans` (answer) fields
+- The GUI currently loads only `.txt` files under `data/`; each file contains either a JSON array or JSON objects per line with `q` and `ans` fields
+- `data/database.json` is not loaded by the current GUI implementation

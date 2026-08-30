@@ -1,12 +1,18 @@
 from typing import Callable, Any, List
+import ctypes
+from ctypes import wintypes
 from numpy import ndarray
 import pygetwindow as gw
 from PIL import Image
 import mss
 import time
 import tkinter as tk
-from tkinter import ttk, messagebox
+from tkinter import messagebox
 import numpy as np
+import win32con
+import win32gui
+import win32process
+import win32ui
 
 def require_window(method: Callable) -> Callable:
     """
@@ -32,6 +38,7 @@ class WindowHandler:
         初始化WindowHandler实例，设置初始窗口为None。
         """
         self.window = None
+        self.window_info = None
 
     def list_windows(self) -> List[str]:
         """
@@ -44,52 +51,226 @@ class WindowHandler:
         return [title for title in windows if title]  # 忽略空标题
         
     def choose_window(self) -> None:
-        """
-        显示窗口选择对话框，供用户选择窗口。
-        """
-        windows = self.list_windows()
-        if not windows:
-            self.show_message("未找到任何窗口。", "error")
+        """显示包含进程信息和截图预览的窗口选择对话框。"""
+        candidates = self._list_window_candidates()
+        if not candidates:
+            self.show_message("未找到可选择的窗口。", "error")
             return
-        root = tk.Tk()
-        root.title("选择窗口")
-        # 设置窗口大小和位置
-        window_width = 400
-        window_height = 250
-        screen_width = root.winfo_screenwidth()
-        screen_height = root.winfo_screenheight()
-        position_top = int(screen_height / 2 - window_height / 2)
-        position_right = int(screen_width / 2 - window_width / 2)
-        root.geometry(f"{window_width}x{window_height}+{position_right}+{position_top}")
-        root.configure(bg="#F5F5F5")
-        # 添加标签
-        label = tk.Label(root, text="请选择一个窗口标题：", font=("Arial", 12), bg="#F5F5F5")
-        label.pack(pady=20)
-        # 添加下拉菜单
-        selected_window = tk.StringVar()
-        dropdown = ttk.Combobox(root, textvariable=selected_window, values=windows, state='readonly', font=("Arial", 10))
-        dropdown.pack(pady=10, padx=20, fill=tk.X)
-        dropdown.current(0)
-        # 确认按钮回调函数
-        def on_select() -> None:
-            window_title = selected_window.get()
-            for win in gw.getWindowsWithTitle(window_title):
-                if win.title == window_title:
-                    self.window = win
-                    break
-            if not self.window:
-                self.show_message("未找到指定窗口，请确保窗口标题正确。", "error")
-            root.destroy()
-        # 添加确认按钮
-        button = tk.Button(root, text="确认", command=on_select, font=("SimHei", 12), bg="#4CAF50", fg="white", relief="flat", height=2)
-        button.pack(pady=20, padx=20, fill=tk.X)
-        # 设置窗口风格
-        style = ttk.Style()
-        # 使用主题
-        style.theme_use("clam")  
-        # 调整下拉菜单内边距
-        style.configure("TCombobox", padding=5)  
-        root.mainloop()
+
+        try:
+            from PyQt5.QtWidgets import QApplication
+        except ImportError:
+            self.window = candidates[0]['window']
+            self.window_info = candidates[0]
+            return
+
+        if QApplication.instance() is None:
+            self.window = candidates[0]['window']
+            self.window_info = candidates[0]
+            return
+        self._choose_window_qt(candidates)
+
+    def _list_window_candidates(self) -> list:
+        """枚举可见顶层窗口，并补充 PID、HWND 和几何信息。"""
+        candidates = []
+        for window in gw.getAllWindows():
+            hwnd = getattr(window, '_hWnd', None)
+            title = (getattr(window, 'title', '') or '').strip()
+            if not hwnd or not title or not win32gui.IsWindowVisible(hwnd):
+                continue
+            width = int(window.right - window.left)
+            height = int(window.bottom - window.top)
+            if width <= 80 or height <= 60:
+                continue
+            try:
+                _, pid = win32process.GetWindowThreadProcessId(hwnd)
+            except Exception:
+                pid = 0
+            candidates.append({
+                'window': window,
+                'hwnd': int(hwnd),
+                'title': title,
+                'pid': int(pid),
+                'left': int(window.left),
+                'top': int(window.top),
+                'width': width,
+                'height': height,
+            })
+
+        candidates.sort(key=lambda item: (item['top'], item['left'], item['title'].lower()))
+        title_counts = {}
+        for candidate in candidates:
+            title = candidate['title']
+            title_counts[title] = title_counts.get(title, 0) + 1
+            candidate['number'] = title_counts[title]
+        return candidates
+
+    @staticmethod
+    def capture_window_image(hwnd: int, width: int, height: int) -> np.ndarray:
+        """通过窗口句柄抓取窗口画面，避免被其他窗口遮挡。"""
+        capture_width = max(1, int(width))
+        capture_height = max(1, int(height))
+        window_dc = win32gui.GetWindowDC(hwnd)
+        source_dc = win32ui.CreateDCFromHandle(window_dc)
+        memory_dc = source_dc.CreateCompatibleDC()
+        bitmap = win32ui.CreateBitmap()
+        try:
+            bitmap.CreateCompatibleBitmap(source_dc, capture_width, capture_height)
+            memory_dc.SelectObject(bitmap)
+            print_window = ctypes.windll.user32.PrintWindow
+            print_window.argtypes = [wintypes.HWND, wintypes.HDC, wintypes.UINT]
+            print_window.restype = wintypes.BOOL
+            rendered = print_window(hwnd, memory_dc.GetSafeHdc(), 2)
+            if rendered != 1:
+                raise RuntimeError('目标窗口不支持后台预览')
+            bitmap_data = bitmap.GetBitmapBits(True)
+            image = np.frombuffer(bitmap_data, dtype=np.uint8)
+            image = image.reshape((capture_height, capture_width, 4))
+            return image[:, :, [2, 1, 0]].copy()
+        finally:
+            win32gui.DeleteObject(bitmap.GetHandle())
+            memory_dc.DeleteDC()
+            source_dc.DeleteDC()
+            win32gui.ReleaseDC(hwnd, window_dc)
+
+    @staticmethod
+    def _capture_window_preview(hwnd: int, width: int, height: int) -> np.ndarray:
+        """通过窗口句柄抓取左上角预览，避免被其他窗口遮挡。"""
+        preview_width = max(1, min(int(width), 480))
+        preview_height = max(1, min(int(height), 300))
+        return WindowHandler.capture_window_image(hwnd, preview_width, preview_height)
+
+    def _choose_window_qt(self, candidates: list) -> None:
+        from PyQt5.QtCore import QSize, Qt
+        from PyQt5.QtGui import QImage, QPixmap
+        from PyQt5.QtWidgets import (QApplication, QDialog, QHBoxLayout, QLabel,
+                                     QLineEdit, QListWidget, QListWidgetItem,
+                                     QPushButton, QVBoxLayout)
+
+        dialog = QDialog(QApplication.activeWindow())
+        dialog.setWindowTitle('选择目标窗口')
+        dialog.resize(820, 520)
+        root_layout = QVBoxLayout(dialog)
+        root_layout.setContentsMargins(20, 18, 20, 18)
+        root_layout.setSpacing(12)
+
+        heading = QLabel('选择目标窗口')
+        heading.setObjectName('sectionTitle')
+        root_layout.addWidget(heading)
+        hint = QLabel('同名窗口按屏幕位置编号，通过序号、进程 ID 和左上角人物信息确认。')
+        hint.setObjectName('sectionHint')
+        root_layout.addWidget(hint)
+
+        search_input = QLineEdit()
+        search_input.setPlaceholderText('搜索窗口标题，例如：QQ三国')
+        root_layout.addWidget(search_input)
+
+        content_layout = QHBoxLayout()
+        window_list = QListWidget()
+        window_list.setMinimumWidth(320)
+        content_layout.addWidget(window_list, 3)
+
+        preview_layout = QVBoxLayout()
+        preview = QLabel('选择窗口后显示左上角预览')
+        preview.setAlignment(Qt.AlignCenter)
+        preview.setMinimumSize(320, 220)
+        preview.setStyleSheet('background: #F7F9FC; border: 1px solid #E1E6EE; border-radius: 8px;')
+        preview_layout.addWidget(preview, 1)
+        detail_label = QLabel('预览区域：窗口左上角')
+        detail_label.setWordWrap(True)
+        preview_layout.addWidget(detail_label)
+        content_layout.addLayout(preview_layout, 2)
+        root_layout.addLayout(content_layout, 1)
+
+        button_layout = QHBoxLayout()
+        locate_button = QPushButton('定位窗口')
+        refresh_preview_button = QPushButton('刷新预览')
+        cancel_button = QPushButton('取消')
+        confirm_button = QPushButton('选择此窗口')
+        confirm_button.setObjectName('primaryButton')
+        button_layout.addWidget(locate_button)
+        button_layout.addWidget(refresh_preview_button)
+        button_layout.addStretch()
+        button_layout.addWidget(cancel_button)
+        button_layout.addWidget(confirm_button)
+        root_layout.addLayout(button_layout)
+
+        def display_text(candidate):
+            return f"{candidate['title']}  #{candidate['number']}    PID {candidate['pid']}"
+
+        def populate(filter_text=''):
+            window_list.clear()
+            keyword = filter_text.strip().lower()
+            for index, candidate in enumerate(candidates):
+                if keyword and keyword not in candidate['title'].lower():
+                    continue
+                item = QListWidgetItem(display_text(candidate))
+                item.setData(Qt.UserRole, index)
+                item.setSizeHint(item.sizeHint().expandedTo(QSize(0, 42)))
+                window_list.addItem(item)
+            if window_list.count():
+                window_list.setCurrentRow(0)
+
+        def current_candidate():
+            item = window_list.currentItem()
+            return candidates[item.data(Qt.UserRole)] if item else None
+
+        def update_preview():
+            candidate = current_candidate()
+            if not candidate:
+                preview.setText('没有匹配的窗口')
+                preview.setPixmap(QPixmap())
+                detail_label.clear()
+                return
+            detail_label.setText(
+                f"{candidate['title']}  #{candidate['number']}    PID {candidate['pid']}\n"
+                "预览区域：窗口左上角"
+            )
+            try:
+                frame = self._capture_window_preview(
+                    candidate['hwnd'], candidate['width'], candidate['height']
+                )
+                image = QImage(
+                    frame.data, frame.shape[1], frame.shape[0], frame.strides[0],
+                    QImage.Format_RGB888,
+                ).copy()
+                pixmap = QPixmap.fromImage(image).scaled(
+                    preview.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation
+                )
+                preview.setPixmap(pixmap)
+                preview.setText('')
+            except Exception as error:
+                preview.setPixmap(QPixmap())
+                preview.setText(f'预览失败\n{error}')
+
+        def locate_window():
+            candidate = current_candidate()
+            if not candidate:
+                return
+            try:
+                win32gui.ShowWindow(candidate['hwnd'], win32con.SW_RESTORE)
+                win32gui.FlashWindow(candidate['hwnd'], True)
+            except Exception as error:
+                detail_label.setText(f"定位窗口失败: {error}")
+
+        def accept_selection():
+            candidate = current_candidate()
+            if not candidate:
+                return
+            self.window = candidate['window']
+            self.window_info = dict(candidate)
+            dialog.accept()
+
+        search_input.textChanged.connect(populate)
+        window_list.currentItemChanged.connect(lambda *_: update_preview())
+        refresh_preview_button.clicked.connect(update_preview)
+        locate_button.clicked.connect(locate_window)
+        cancel_button.clicked.connect(dialog.reject)
+        confirm_button.clicked.connect(accept_selection)
+        window_list.itemDoubleClicked.connect(lambda *_: accept_selection())
+
+        populate()
+        dialog.exec_()
 
     @require_window
     def capture_screenshot(self, filename: str = "screenshot.png") -> str:
@@ -230,9 +411,8 @@ class WindowHandler:
             messagebox.showerror("错误", message)
         root.destroy()
 
-        
+
 if __name__ == "__main__":
     ws = WindowHandler()
     ws.choose_window()
     ws.capture_screenshot("screenshot.png")
-        

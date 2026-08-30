@@ -1,6 +1,6 @@
 from PyQt5.QtWidgets import (QPushButton, QLabel, QHBoxLayout, QVBoxLayout,
                             QGroupBox, QLineEdit, QDoubleSpinBox, QCheckBox,
-                            QFileDialog)
+                            QFileDialog, QTextEdit)
 from PyQt5.QtCore import QThread, pyqtSignal, QMutex, QMutexLocker
 import time
 import os
@@ -223,8 +223,14 @@ class YOLOFeature:
         control_layout.addWidget(self.status_label)
         layout.addLayout(control_layout)
 
+        layout.addWidget(QLabel('检测结果:'))
+        self.result_display = QTextEdit()
+        self.result_display.setReadOnly(True)
+        self.result_display.setMinimumHeight(150)
+        self.result_display.setPlaceholderText('检测结果将在这里显示...')
+        layout.addWidget(self.result_display)
+
         self.parent.left_layout.addWidget(self.group_box)
-        self.parent.left_layout.addStretch()
 
     def browse_model(self):
         file_path, _ = QFileDialog.getOpenFileName(
@@ -310,13 +316,11 @@ class YOLOFeature:
                 )
             result_text = "\n".join(lines)
 
-        if hasattr(self.parent, 'current_result') and self.parent.current_result:
-            self.parent.current_result.setText(result_text)
+        self.result_display.setText(result_text)
 
     def on_error_occurred(self, error_msg):
         self.status_label.setText(f'状态: {error_msg}')
-        if hasattr(self.parent, 'current_result') and self.parent.current_result:
-            self.parent.current_result.setText(f"错误: {error_msg}")
+        self.result_display.setText(f"错误: {error_msg}")
 
     def on_status_updated(self, status):
         self.status_label.setText(f'状态: {status}')

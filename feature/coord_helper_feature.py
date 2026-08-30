@@ -108,6 +108,7 @@ class CoordHelperFeature(QObject):
 
         self.group_box.setLayout(layout)
         self.group_box.setVisible(False)
+        self.gui.left_layout.addWidget(self.group_box)
 
     def get_game_window(self):
         title = self.window_title_edit.text().strip()

@@ -511,6 +511,41 @@ class WinOperator:
         else:
             print("未选择任何区域")
             return None
+
+    def select_window_region(self, window):
+        """在指定窗口截图内选择区域，并返回相对窗口坐标。
+
+        Args:
+            window: pygetwindow 返回的窗口对象。
+
+        Returns:
+            相对窗口左上角的 ``(x, y, width, height)``；取消时返回 None。
+        """
+        if window is None:
+            raise ValueError("未选择目标窗口")
+
+        left = int(window.left)
+        top = int(window.top)
+        width = int(window.right - window.left)
+        height = int(window.bottom - window.top)
+        if width <= 0 or height <= 0:
+            raise ValueError("目标窗口尺寸无效")
+
+        screenshot = pyautogui.screenshot(region=(left, top, width, height))
+        screenshot = cv2.cvtColor(np.array(screenshot), cv2.COLOR_RGB2BGR)
+        preview = screenshot.copy()
+        shade = np.zeros_like(preview)
+        cv2.addWeighted(preview, 0.75, shade, 0.25, 0, preview)
+
+        print("请在目标窗口截图中框选题目区域，按 Enter 或 Space 确认，按 Esc 取消...")
+        roi = cv2.selectROI("Select question region", preview, showCrosshair=True, fromCenter=False)
+        cv2.destroyWindow("Select question region")
+        if roi == (0, 0, 0, 0):
+            return None
+
+        x, y, selected_width, selected_height = (int(value) for value in roi)
+        return x, y, selected_width, selected_height
+
     def click_trueorfalse(self, text, window=None):
         """点击真/假按钮
         

@@ -148,7 +148,6 @@ class MouseClickerFeature:
         clicker_control_layout.addLayout(control_row)
         
         self.parent.left_layout.addWidget(self.group_box)
-        self.parent.left_layout.addStretch()
         
         self.update_ui_state()
     

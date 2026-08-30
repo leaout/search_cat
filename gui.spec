@@ -10,6 +10,8 @@ a = Analysis(
         ('.\\.venv\\Lib\\site-packages\\paddle\\libs\\libiomp5md.dll', '.')
     ],
     datas=[
+        ('data', 'data'),
+        ('icon', 'icon'),
         ('.\\.venv\\Lib\\site-packages\\paddleocr\\tools', 'paddleocr/tools'),
         ('.\\.venv\\Lib\\site-packages\\paddleocr\\ppocr', 'paddleocr/ppocr'),
         ('.\\.venv\\Lib\\site-packages\\paddleocr\\ppstructure', 'paddleocr/ppstructure'),  # 修复这里的路径，去掉多余空格
