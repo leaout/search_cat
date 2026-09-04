@@ -334,8 +334,9 @@ class TravelFeature:
             return
         self.target_window = self.window_handler.window
         info = self.window_handler.window_info or {}
+        title = str(info.get('title') or self.target_window.title)
         self.window_label.setText(
-            f"{self.target_window.title} #{info.get('number', 1)} · PID {info.get('pid', 0)}"
+            f"{title} #{info.get('number', 1)} · PID {info.get('pid', 0)}"
         )
         self.start_btn.setEnabled(True)
 

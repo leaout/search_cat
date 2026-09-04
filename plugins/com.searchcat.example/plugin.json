@@ -1,0 +1,15 @@
+{
+  "id": "com.searchcat.example",
+  "name": "SDK 基础示例",
+  "version": "1.0.0",
+  "sdk_version": "1",
+  "entry": "main.py",
+  "description": "演示窗口绑定、截图、取色、调试变量和独立存储。",
+  "permissions": [
+    "window.bind",
+    "screen.capture",
+    "mouse.foreground",
+    "filesystem.plugin_data"
+  ],
+  "config_schema": "config.schema.json"
+}

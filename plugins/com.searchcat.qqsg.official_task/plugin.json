@@ -1,0 +1,23 @@
+{
+  "id": "com.searchcat.qqsg.official-task",
+  "name": "QQ三国官爵任务",
+  "version": "0.1.0",
+  "sdk_version": "1",
+  "entry": "main.py",
+  "description": "OCR 监控官爵任务栏，优先通过好友面板代码寻路，依次与任务 NPC 对话并确认任务变化。",
+  "permissions": [
+    "window.bind",
+    "screen.capture",
+    "mouse.foreground",
+    "mouse.background",
+    "keyboard.foreground",
+    "keyboard.background",
+    "filesystem.plugin_data"
+  ],
+  "config_schema": "config.schema.json",
+  "templates": [
+    {"id": "accept", "name": "接取按钮", "path": "images/accept.png"},
+    {"id": "continue", "name": "继续按钮", "path": "images/continue.png"},
+    {"id": "complete", "name": "完成按钮", "path": "images/complete.png"}
+  ]
+}

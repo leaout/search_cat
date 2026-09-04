@@ -12,6 +12,7 @@ a = Analysis(
     datas=[
         ('data', 'data'),
         ('icon', 'icon'),
+        ('plugins', 'plugins'),
         ('.\\.venv\\Lib\\site-packages\\paddleocr\\tools', 'paddleocr/tools'),
         ('.\\.venv\\Lib\\site-packages\\paddleocr\\ppocr', 'paddleocr/ppocr'),
         ('.\\.venv\\Lib\\site-packages\\paddleocr\\ppstructure', 'paddleocr/ppstructure'),  # 修复这里的路径，去掉多余空格
@@ -25,6 +26,7 @@ a = Analysis(
         'urllib3', 'chardet', 'idna', 'certifi',  # requests 的依赖
         'Cython', 'Cython.Build', 'Cython.Compiler', 'Cython.Runtime',  # 确保 Cython 相关模块
         'win32api',
+        'plugin_platform.worker',
     ],
     hookspath=[],
     hooksconfig={},
@@ -53,6 +55,7 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
+    icon=['icon/icon.ico'],
 )
 coll = COLLECT(
     exe,

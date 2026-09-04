@@ -72,7 +72,7 @@ def load_existing_questions(data_directory: Path, excluded_path: Path) -> dict[s
 
 
 def import_bank(source_path: Path, output_path: Path) -> dict[str, int]:
-    """Export the complete website bank, with website answers winning conflicts."""
+    """Export the website bank as supplemental data; local answers win at load time."""
     source_records = parse_source(source_path)
     existing = load_existing_questions(output_path.parent, output_path)
     website_records = {}
@@ -102,7 +102,7 @@ def import_bank(source_path: Path, output_path: Path) -> dict[str, int]:
         'source': len(source_records),
         'exported': len(website_records),
         'overlaps': overlap_count,
-        'website_overrides': override_count,
+        'conflicts_with_local': override_count,
         'website_duplicates': website_duplicate_count,
     }
 

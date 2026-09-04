@@ -34,7 +34,7 @@ or one JSON object per line:
 {"q": "Another question", "ans": "Another answer"}
 ```
 
-The OCR page also provides manual local-bank search using Chinese keywords or imported pinyin initials. Public records are stored in `data/qqsg_public_question_bank.txt` with source metadata and can be regenerated with `tools/import_question_bank.py`. When the same question has conflicting answers, the website answer takes precedence over the older local answer. Text answers are display-only; automatic clicking is enabled only for exact A/B answers.
+The OCR page also provides manual local-bank search using Chinese keywords or imported pinyin initials. Public records are stored in `data/qqsg_public_question_bank.txt` with source metadata and can be regenerated with `tools/import_question_bank.py`. Website records only supplement missing questions; when answers conflict, the original local question bank takes precedence. Text answers are display-only; automatic clicking is enabled only for exact A/B answers.
 
 ### Travel entrance assistant
 
@@ -43,6 +43,18 @@ The OCR page also provides manual local-bank search using Chinese keywords or im
 - Configurable template and color thresholds.
 - Read-only: it does not generate mouse or keyboard input.
 - Templates are stored under `data/templates/travel/`.
+
+### Automation plugin platform
+
+- Discovers, installs, and runs local Python plugins containing a `plugin.json` manifest.
+- Gives each plugin isolated read-only assets and writable `plugin_data/<plugin-id>/` storage.
+- Runs plugin code in a separate Python process and exposes host automation through local JSON-RPC.
+- The first SDK version supports bound windows, foreground/background capture, image/color matching, foreground/background input, and JSON storage.
+- Dry-run mode performs capture and recognition without sending real mouse or keyboard input.
+- Shows live frames, SDK timings, structured step logs, and watched debug values.
+- Stores a separate `run.log`, `events.jsonl`, and configuration snapshot for every run.
+- `Ctrl+Shift+F12` is the global emergency-stop shortcut.
+- See `docs/plugin_sdk.md` and the bundled `plugins/com.searchcat.example/` plugin.
 
 ### Advanced clicker
 

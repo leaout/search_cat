@@ -209,7 +209,8 @@ class WindowKeyFeature:
             alias = f"〔{info.get('alias')}〕 " if info.get('alias') else ''
             number = f" #{info.get('number')}" if info.get('number') else ''
             pid = f" · PID {info.get('pid')}" if info.get('pid') else ''
-            self.window_label.setText(f"{alias}{handler.window.title}{number}{pid}")
+            title = str(info.get('title') or handler.window.title)
+            self.window_label.setText(f"{alias}{title}{number}{pid}")
             self.status_label.setText('状态: 已选择窗口')
 
     def toggle(self):

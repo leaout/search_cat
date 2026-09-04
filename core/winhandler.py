@@ -14,6 +14,8 @@ import win32gui
 import win32process
 import win32ui
 
+from core.text import repair_utf8_gbk_mojibake
+
 def require_window(method: Callable) -> Callable:
     """
     装饰器，用于检查是否已设置窗口。如果未设置窗口，则显示警告信息。
@@ -75,7 +77,9 @@ class WindowHandler:
         candidates = []
         for window in gw.getAllWindows():
             hwnd = getattr(window, '_hWnd', None)
-            title = (getattr(window, 'title', '') or '').strip()
+            # pygetwindow 的标题在部分中文程序上会把 UTF-8 字节按本地代码页
+            # 解码，产生“QQ涓夊浗”一类乱码。Win32 W 接口直接返回 Unicode。
+            title = self.get_unicode_window_title(hwnd, getattr(window, 'title', ''))
             if not hwnd or not title or not win32gui.IsWindowVisible(hwnd):
                 continue
             width = int(window.right - window.left)
@@ -104,6 +108,37 @@ class WindowHandler:
             title_counts[title] = title_counts.get(title, 0) + 1
             candidate['number'] = title_counts[title]
         return candidates
+
+    @staticmethod
+    def get_unicode_window_title(hwnd: int, fallback: str = '') -> str:
+        """Read a title from Win32, including games that put UTF-8 in the ANSI API."""
+        if not hwnd:
+            return str(fallback or '').strip()
+        try:
+            user32 = ctypes.windll.user32
+            # QQSG exposes UTF-8 bytes through the legacy ANSI title API on
+            # some systems. Reading those bytes directly avoids the lossy
+            # ANSI -> Unicode conversion that turns undecodable bytes into '?'.
+            ansi_buffer = ctypes.create_string_buffer(8192)
+            ansi_length = user32.GetWindowTextA(
+                wintypes.HWND(hwnd), ansi_buffer, len(ansi_buffer)
+            )
+            if ansi_length:
+                raw_title = ansi_buffer.raw[:ansi_length]
+                try:
+                    utf8_title = raw_title.decode('utf-8').strip()
+                except UnicodeDecodeError:
+                    utf8_title = ''
+                if utf8_title:
+                    return utf8_title
+
+            length = user32.GetWindowTextLengthW(wintypes.HWND(hwnd))
+            buffer = ctypes.create_unicode_buffer(length + 1)
+            user32.GetWindowTextW(wintypes.HWND(hwnd), buffer, length + 1)
+            title = buffer.value.strip()
+            return repair_utf8_gbk_mojibake(title or str(fallback or '').strip())
+        except (AttributeError, OSError, TypeError, ValueError):
+            return repair_utf8_gbk_mojibake(str(fallback or '').strip())
 
     @staticmethod
     def capture_window_image(hwnd: int, width: int, height: int) -> np.ndarray:

@@ -1,0 +1,26 @@
+{
+  "type": "object",
+  "properties": {
+    "capture_mode": {
+      "type": "string",
+      "title": "截图方式",
+      "enum": ["auto", "background", "foreground"],
+      "default": "auto"
+    },
+    "sample_x": {
+      "type": "integer",
+      "title": "取色 X",
+      "default": 100
+    },
+    "sample_y": {
+      "type": "integer",
+      "title": "取色 Y",
+      "default": 100
+    },
+    "perform_click": {
+      "type": "boolean",
+      "title": "执行示例点击",
+      "default": false
+    }
+  }
+}

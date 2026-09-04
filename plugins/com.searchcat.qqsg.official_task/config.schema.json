@@ -1,0 +1,145 @@
+{
+  "type": "object",
+  "properties": {
+    "calibrated": {
+      "type": "boolean",
+      "title": "坐标已经校准",
+      "default": false
+    },
+    "input_mode": {
+      "type": "string",
+      "title": "输入方式",
+      "enum": ["foreground", "background"],
+      "default": "foreground"
+    },
+    "capture_mode": {
+      "type": "string",
+      "title": "截图方式",
+      "enum": ["auto", "background", "foreground"],
+      "default": "auto"
+    },
+    "task_region": {
+      "type": "array",
+      "title": "右侧任务栏 OCR 区域 [x,y,w,h]",
+      "default": [520, 70, 270, 430]
+    },
+    "ocr_confidence": {
+      "type": "number",
+      "title": "任务栏 OCR 最低置信度",
+      "minimum": 0.1,
+      "maximum": 1,
+      "default": 0.55
+    },
+    "task_keyword": {
+      "type": "string",
+      "title": "用于确认官爵任务存在的关键词",
+      "default": "官爵"
+    },
+    "npc_routes": {
+      "type": "object",
+      "title": "NPC 路由：名称 -> [地图ID, X, Y]",
+      "default": {}
+    },
+    "friend_tab_point": {
+      "type": "array",
+      "title": "交流面板好友页坐标",
+      "default": [212, 137]
+    },
+    "add_friend_point": {
+      "type": "array",
+      "title": "添加好友按钮坐标",
+      "default": [454, 459]
+    },
+    "friend_input_point": {
+      "type": "array",
+      "title": "添加好友输入框坐标",
+      "default": [339, 280]
+    },
+    "generated_link_point": {
+      "type": "array",
+      "title": "生成后的绿色寻路链接坐标",
+      "default": [339, 309]
+    },
+    "accept_point": {
+      "type": "array",
+      "title": "领取任务按钮客户区坐标",
+      "default": [400, 500]
+    },
+    "continue_point": {
+      "type": "array",
+      "title": "NPC 对话继续按钮客户区坐标",
+      "default": [400, 500]
+    },
+    "complete_point": {
+      "type": "array",
+      "title": "完成任务按钮客户区坐标",
+      "default": [400, 500]
+    },
+    "navigation_wait": {
+      "type": "number",
+      "title": "每次自动寻路等待秒数",
+      "minimum": 1,
+      "maximum": 120,
+      "default": 12
+    },
+    "ui_wait": {
+      "type": "number",
+      "title": "交流面板操作等待秒数",
+      "minimum": 0.1,
+      "maximum": 5,
+      "default": 0.5
+    },
+    "monitor_interval": {
+      "type": "number",
+      "title": "任务栏监控间隔秒数",
+      "minimum": 0.5,
+      "maximum": 10,
+      "default": 1.5
+    },
+    "maximum_cycles": {
+      "type": "integer",
+      "title": "最大任务处理轮数",
+      "minimum": 1,
+      "maximum": 30,
+      "default": 10
+    },
+    "unchanged_retries": {
+      "type": "integer",
+      "title": "任务内容不变重试次数",
+      "minimum": 0,
+      "maximum": 10,
+      "default": 3
+    },
+    "completion_confirm_scans": {
+      "type": "integer",
+      "title": "任务消失完成确认次数",
+      "minimum": 1,
+      "maximum": 5,
+      "default": 2
+    },
+    "dialog_wait": {
+      "type": "number",
+      "title": "打开对话后等待秒数",
+      "minimum": 0.2,
+      "maximum": 10,
+      "default": 1
+    },
+    "template_threshold": {
+      "type": "number",
+      "title": "可选按钮模板阈值",
+      "minimum": 0.5,
+      "maximum": 1,
+      "default": 0.85
+    },
+    "use_templates": {
+      "type": "boolean",
+      "title": "优先使用按钮模板",
+      "default": false
+    },
+    "allow_coordinate_fallback": {
+      "type": "boolean",
+      "title": "模板失败时允许坐标回退",
+      "default": false
+    }
+  }
+}

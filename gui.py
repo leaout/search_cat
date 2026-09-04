@@ -2,6 +2,7 @@
 import sys
 import json
 import os
+from pathlib import Path
 os.environ.setdefault('KMP_DUPLICATE_LIB_OK', 'TRUE')
 try:
     import torch
@@ -23,6 +24,16 @@ from feature.window_key_feature import WindowKeyFeature
 from feature.coord_helper_feature import CoordHelperFeature
 from feature.yolo_feature import YOLOFeature
 from feature.travel_feature import TravelFeature
+from feature.script_platform_feature import ScriptPlatformFeature
+
+
+def resource_path(relative_path: str) -> str:
+    """Resolve a bundled PyInstaller resource or a source-tree resource."""
+    application_root = Path(getattr(sys, '_MEIPASS', Path(__file__).resolve().parent))
+    return str(application_root / relative_path)
+
+
+APP_ICON_PATH = resource_path('icon/icon.ico')
 
 class BaseGUI(QMainWindow):
     def __init__(self):
@@ -84,7 +95,7 @@ class BaseGUI(QMainWindow):
         self.setWindowTitle('Search Cat')
         self.resize(1120, 720)
         self.setMinimumSize(960, 640)
-        self.setWindowIcon(QIcon('icon/icon.png'))
+        self.setWindowIcon(QIcon(APP_ICON_PATH))
         
         # 创建状态栏
         self.status_bar = QStatusBar()
@@ -178,6 +189,9 @@ class QSearchApp(BaseGUI):
         self.travel_feature = TravelFeature(self)
         self.travel_feature.create_ui()
 
+        self.script_platform_feature = ScriptPlatformFeature(self)
+        self.script_platform_feature.create_ui()
+
         self.left_layout.addStretch()
         
         self.feature_groups = {
@@ -187,12 +201,14 @@ class QSearchApp(BaseGUI):
             '坐标助手': self.coord_helper_feature.group_box,
             'YOLO检测': self.yolo_feature.group_box,
             '行脚助手': self.travel_feature.group_box,
+            '脚本平台': self.script_platform_feature.group_box,
         }
         
         self.feature_combo.currentTextChanged.connect(self.switch_feature)
         self.switch_feature('OCR识别')
         
         keyboard.add_hotkey('home', self.toggle_current_feature)
+        keyboard.add_hotkey('ctrl+shift+f12', self.emergency_stop)
         
         # 启动时检查许可证，过期则禁用功能
         self._update_feature_enabled_state()
@@ -235,7 +251,7 @@ class QSearchApp(BaseGUI):
         self.feature_combo = QListWidget()
         self.feature_combo.setObjectName('featureNav')
         self.feature_combo.addItems([
-            'OCR识别', '行脚助手', '连点器',
+            'OCR识别', '行脚助手', '脚本平台', '连点器',
             '窗口按键', '坐标助手', 'YOLO检测',
         ])
         self.feature_combo.setCurrentRow(0)
@@ -274,6 +290,7 @@ class QSearchApp(BaseGUI):
             '坐标助手': '坐标助手',
             'YOLO检测': 'YOLO 目标检测',
             '行脚助手': '行脚洞口助手',
+            '脚本平台': '自动化脚本平台',
         }
         self.page_title.setText(display_names.get(feature_name, feature_name))
         hints = {
@@ -283,6 +300,7 @@ class QSearchApp(BaseGUI):
             '坐标助手': '记录目标窗口内的点坐标和区域',
             'YOLO检测': '加载模型并配置目标检测区域',
             '行脚助手': '识别行脚场景并判断 1–6 号洞口',
+            '脚本平台': '安装、配置、调试并运行独立自动化插件',
         }
         self.page_hint.setText(hints.get(feature_name, '配置当前功能'))
         
@@ -305,6 +323,25 @@ class QSearchApp(BaseGUI):
             self.yolo_feature.toggle()
         elif self.current_feature == '行脚助手':
             self.travel_feature.toggle()
+        elif self.current_feature == '脚本平台':
+            self.script_platform_feature.toggle()
+
+    def emergency_stop(self):
+        """Stop automation immediately from a global safety hotkey."""
+        for feature in (
+            self.ocr_feature, self.clicker_feature, self.window_key_feature,
+            self.yolo_feature, self.travel_feature, self.script_platform_feature,
+        ):
+            try:
+                feature.stop()
+            except Exception as error:
+                print(f'紧急停止失败: {error}')
+        self.hotkey_status_label.setText('● 已紧急停止 · Ctrl+Shift+F12')
+
+    def closeEvent(self, event):
+        self.emergency_stop()
+        keyboard.unhook_all_hotkeys()
+        super().closeEvent(event)
         
     def setup_left_panel(self):
         """左侧功能面板由各feature自行创建"""
@@ -438,7 +475,22 @@ QFrame#sidebar QLabel#shortcutBadge {
 """
 
 if __name__ == '__main__':
+    if '--plugin-worker' in sys.argv:
+        from plugin_platform.worker import main as worker_main
+        worker_index = sys.argv.index('--plugin-worker')
+        raise SystemExit(worker_main(sys.argv[worker_index + 1:]))
+
+    if sys.platform == 'win32':
+        try:
+            import ctypes
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(
+                'SearchCat.DesktopAutomation.1'
+            )
+        except (AttributeError, OSError):
+            pass
+
     app = QApplication(sys.argv)
+    app.setWindowIcon(QIcon(APP_ICON_PATH))
     
     # 设置应用样式
     app.setStyle('Fusion')

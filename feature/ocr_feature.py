@@ -440,12 +440,14 @@ class OCRFeature(QObject):
             self.result_display.setText(result_text)
         
     def load_answers(self):
-        """加载答案库；同题冲突时网站题库具有更高优先级。"""
+        """加载答案库；原有本地题库优先，网站题库只补充缺失题目。"""
         print("正在加载答案数据...")
         start_time = time.time()
         selected_answers = {}
         selected_priorities = {}
-        website_override_count = 0
+        local_override_count = 0
+        website_conflict_count = 0
+        website_source = 'https://sg1.zhy1024.com/questionBank.js'
         for root, dirs, files in os.walk("data"):
             dirs.sort()
             for file in sorted(files):
@@ -459,21 +461,26 @@ class OCRFeature(QObject):
                         )
                         if not question_key:
                             continue
-                        priority = 10 if item.get('source') == (
-                            'https://sg1.zhy1024.com/questionBank.js'
-                        ) else 0
+                        is_website_record = item.get('source') == website_source
+                        priority = 0 if is_website_record else 10
                         previous_priority = selected_priorities.get(question_key, -1)
                         if priority < previous_priority:
+                            if is_website_record:
+                                website_conflict_count += 1
                             continue
                         if priority > previous_priority >= 0:
-                            website_override_count += 1
+                            local_override_count += 1
+                        elif priority == previous_priority:
+                            # 同一来源层级保持首次加载项，避免文件名排序改变答案。
+                            continue
                         selected_answers[question_key] = item
                         selected_priorities[question_key] = priority
         self.answer_set = list(selected_answers.values())
         load_time = time.time() - start_time
         print(
             f"答案数据加载完成，共{len(self.answer_set)}条，"
-            f"网站优先覆盖{website_override_count}条，耗时: {load_time:.3f}秒"
+            f"原题库覆盖网站{local_override_count}条，"
+            f"忽略网站冲突{website_conflict_count}条，耗时: {load_time:.3f}秒"
         )
         if hasattr(self.parent, 'update_question_count'):
             self.parent.update_question_count(len(self.answer_set))
@@ -490,8 +497,9 @@ class OCRFeature(QObject):
             alias = f"〔{info.get('alias')}〕 " if info.get('alias') else ''
             number = f" #{info.get('number')}" if info.get('number') else ''
             pid = f" · PID {info.get('pid')}" if info.get('pid') else ''
+            title = str(info.get('title') or self.target_window.title or '已选择窗口')
             self.window_label.setText(
-                f"{alias}{self.target_window.title or '已选择窗口'}{number}{pid}"
+                f"{alias}{title}{number}{pid}"
             )
             if self.relative_region:
                 self.region_label.setText("已复用上次的相对识别区域")
