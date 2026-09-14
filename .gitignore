@@ -23,6 +23,10 @@ data/unmatched_questions.txt
 
 # Debug
 debug_screenshot.png
+screenshot.png
+.analysis_lib/
+.tmp_databin/
+data/window_key_config.json
 
 # Other
 license.json

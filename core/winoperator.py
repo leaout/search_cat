@@ -273,6 +273,18 @@ class Win32Keyboard:
                 time.sleep(hold_time)
             win32api.SendMessage(hwnd, WM_KEYUP, vk, up_lparam)
 
+    def background_key_down(self, hwnd: int, key: str):
+        """向后台窗口发送按键按下消息。"""
+        vk = self._get_vk_code(key)
+        if vk:
+            win32api.SendMessage(hwnd, WM_KEYDOWN, vk, _make_key_lparam(vk, False))
+
+    def background_key_up(self, hwnd: int, key: str):
+        """向后台窗口发送按键释放消息。"""
+        vk = self._get_vk_code(key)
+        if vk:
+            win32api.SendMessage(hwnd, WM_KEYUP, vk, _make_key_lparam(vk, True))
+
     def background_press_combination(self, hwnd: int, *keys):
         """向后台窗口发送组合键（不激活窗口）"""
         vk_codes = [self._get_vk_code(k) for k in keys if self._get_vk_code(k)]

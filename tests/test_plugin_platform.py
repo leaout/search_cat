@@ -127,11 +127,15 @@ class PluginWorkerTests(unittest.TestCase):
                 'input_mode': 'foreground',
                 'capture_mode': 'auto',
                 'task_region': [520, 70, 270, 430],
+                'minimap_region': [540, 0, 250, 90],
                 'task_keyword': '官爵',
-                'accept_point': [400, 500],
-                'continue_point': [400, 500],
-                'complete_point': [400, 500],
-                'navigation_wait': 12,
+                'npc_routes': {'奋威中郎将': [23, 11, 7]},
+                'navigation_routes': {
+                    '奋威中郎将': {'map': '成都·子城', 'waypoints': [[11, 7]]},
+                },
+                'dialog_task_point': [400, 500],
+                'task_entry_point': [400, 500],
+                'accept_confirm_point': [400, 500],
                 'completion_confirm_scans': 2,
                 'dialog_wait': 1,
                 'template_threshold': 0.85,
@@ -163,6 +167,8 @@ class PluginWorkerTests(unittest.TestCase):
                         method = message['method']
                         if method == 'window.is_alive':
                             result = True
+                        elif method == 'window.activate':
+                            result = {'active': True, 'dry_run': True}
                         elif method == 'capture.window':
                             result = {
                                 'id': 'frame', 'width': 270, 'height': 430,
@@ -172,7 +178,7 @@ class PluginWorkerTests(unittest.TestCase):
                         elif method == 'ocr.recognize':
                             ocr_calls += 1
                             result = ([{
-                                'text': '官爵任务：寻找张飞',
+                                'text': '成都·子城 (11, 7)',
                                 'confidence': 0.99,
                                 'box': [[0, 0], [200, 0], [200, 30], [0, 30]],
                                 'center': [100, 15],

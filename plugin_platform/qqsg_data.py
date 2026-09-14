@@ -80,10 +80,10 @@ def normalize_map_name(value: str) -> str:
     return ''.join(value.strip().replace('．', '.').replace('·', '.').split()).casefold()
 
 
-def parse_map_data(payload: bytes) -> dict[str, int]:
-    """Return normalized map-name to current client map-ID mappings."""
+def parse_map_catalog(payload: bytes) -> dict[str, dict]:
+    """Return normalized map names with their display names and client IDs."""
     text = payload.decode('gb18030', errors='strict').lstrip('\ufeff')
-    result: dict[str, int] = {}
+    result: dict[str, dict] = {}
     for line in text.splitlines():
         columns = line.strip().split()
         if len(columns) < 3:
@@ -94,10 +94,15 @@ def parse_map_data(payload: bytes) -> dict[str, int]:
             continue
         map_name = normalize_map_name(columns[2])
         if map_name:
-            result.setdefault(map_name, map_id)
+            result.setdefault(map_name, {'name': columns[2].replace('·', '.'), 'id': map_id})
     if not result:
         raise ValueError('MapData.txt 中没有解析到地图记录')
     return result
+
+
+def parse_map_data(payload: bytes) -> dict[str, int]:
+    """Return normalized map-name to current client map-ID mappings."""
+    return {name: item['id'] for name, item in parse_map_catalog(payload).items()}
 
 
 def find_installation() -> Path | None:
@@ -143,6 +148,7 @@ def load_npc_locations(path: Path) -> list[dict]:
 def build_routes(map_ids: dict[str, int], locations: list[dict]) -> tuple[dict, dict]:
     """Join public NPC coordinates to IDs parsed from the installed game client."""
     candidates: dict[str, list[list[int]]] = {}
+    navigation_candidates: dict[str, list[dict]] = {}
     unmatched: list[str] = []
     invalid = 0
     for item in locations:
@@ -158,11 +164,21 @@ def build_routes(map_ids: dict[str, int], locations: list[dict]) -> tuple[dict, 
             unmatched.append(f'{name}@{map_name}')
             continue
         candidates.setdefault(name, []).append([map_id, x, y])
+        navigation_candidates.setdefault(name, []).append({
+            'map': map_name,
+            'waypoints': [[x, y]],
+        })
     routes = {name: values[0] for name, values in candidates.items() if len(set(map(tuple, values))) == 1}
+    navigation_routes = {
+        name: values[0]
+        for name, values in navigation_candidates.items()
+        if name in routes and len({json.dumps(value, ensure_ascii=False, sort_keys=True) for value in values}) == 1
+    }
     conflicts = {name: values for name, values in candidates.items() if len(set(map(tuple, values))) > 1}
     return routes, {
         'maps': len(map_ids), 'locations': len(locations), 'routes': len(routes),
         'unmatched': unmatched, 'conflicts': conflicts, 'invalid': invalid,
+        'navigation_routes': navigation_routes,
     }
 
 

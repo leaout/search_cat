@@ -58,7 +58,7 @@ OCR 页面还提供本地题库快速查询，支持中文关键字和已导入�
 - 每次运行在插件数据目录下生成独立的 `run.log`、`events.jsonl` 和配置快照。
 - 全局紧急停止快捷键为 `Ctrl+Shift+F12`。
 - 内置 `plugins/com.searchcat.example/` 示例插件；开发说明见 `docs/plugin_sdk.md`。
-- 内置可校准的 `plugins/com.searchcat.qqsg.official_task/` 官爵任务插件，支持前后台输入、任务步骤数、寻路等待、坐标回退和可选按钮模板。
+- 内置可校准的 `plugins/com.searchcat.qqsg.official_task/` 官爵任务插件：支持任务栏/小地图框选、多重 OCR 与 NPC 名称纠错、精准点击任务栏 NPC 调用游戏自动寻路、按地图持久化 NPC 数据，以及客户端地形解析和闭环路线调试。
 
 ### 高级连点器
 

@@ -1,12 +1,19 @@
+import json
+import re
+import time
+from pathlib import Path
+
+import win32gui
+from PyQt5.QtCore import QThread, pyqtSignal
 from PyQt5.QtWidgets import (QPushButton, QLabel, QVBoxLayout,
                             QHBoxLayout, QGroupBox, QLineEdit,
-                            QSpinBox, QDoubleSpinBox, QTextEdit, QCheckBox)
-from PyQt5.QtCore import Qt, QThread, pyqtSignal
-import keyboard
-import time
-import win32gui
+                            QDoubleSpinBox, QTextEdit, QCheckBox)
+
 from core.winhandler import WindowHandler
 from core.winoperator import Win32Keyboard
+
+
+CONFIG_FILE = Path('data/window_key_config.json')
 
 class WindowKeyWorker(QThread):
     """工作线程：遍历窗口并按键"""
@@ -39,15 +46,10 @@ class WindowKeyWorker(QThread):
             if not part:
                 continue
 
-            # 处理组合键 (如 'ctrl+a', 'shift+b-c')
-            if '-' in part:
-                # 分割组合键中的各个按键
-                keys = [k.strip() for k in part.split('-') if k.strip()]
-                if keys:
-                    sequence.append(keys)
-            else:
-                # 单个按键
-                sequence.append([part])
+            # 同时兼容 ctrl+a 和 ctrl-a，-> 只负责分隔按键序列。
+            keys = [key.strip() for key in re.split(r'[+-]', part) if key.strip()]
+            if keys:
+                sequence.append(keys)
 
         return sequence if sequence else [['space']]
 
@@ -114,6 +116,7 @@ class WindowKeyFeature:
         self.worker = None
         self.is_running = False
         self.selected_hwnd = None
+        self.saved_config = self._load_config()
 
     def create_ui(self):
         self.group_box = QGroupBox("窗口按键")
@@ -138,13 +141,13 @@ class WindowKeyFeature:
         key_layout = QHBoxLayout()
         key_layout.addWidget(QLabel('按键组合:'))
         self.key_input = QLineEdit()
-        self.key_input.setText('space')
+        self.key_input.setText(str(self.saved_config.get('key_combination', 'space')))
         self.key_input.setPlaceholderText('如: a->b-c->space')
         key_layout.addWidget(self.key_input)
         key_layout.addWidget(QLabel('间隔(秒):'))
         self.delay_input = QDoubleSpinBox()
         self.delay_input.setRange(0, 5)
-        self.delay_input.setValue(0.1)
+        self.delay_input.setValue(float(self.saved_config.get('delay_between_keys', 0.1)))
         self.delay_input.setSingleStep(0.1)
         self.delay_input.setDecimals(1)
         key_layout.addWidget(self.delay_input)
@@ -155,13 +158,14 @@ class WindowKeyFeature:
         loop_layout.addWidget(QLabel('循环间隔(秒):'))
         self.loop_interval_input = QDoubleSpinBox()
         self.loop_interval_input.setRange(0.1, 300)
-        self.loop_interval_input.setValue(5)
+        self.loop_interval_input.setValue(float(self.saved_config.get('loop_interval', 5)))
         self.loop_interval_input.setSingleStep(0.5)
         self.loop_interval_input.setDecimals(1)
         loop_layout.addWidget(self.loop_interval_input)
 
         self.background_cb = QCheckBox('后台模式')
         self.background_cb.setToolTip('启用后不激活窗口，直接向后台发送按键')
+        self.background_cb.setChecked(bool(self.saved_config.get('background_mode', False)))
         loop_layout.addWidget(self.background_cb)
 
         loop_layout.addWidget(QLabel('说明: 每次循环完成后等待此时间再重新开始'))
@@ -197,8 +201,48 @@ class WindowKeyFeature:
         progress_layout.addWidget(self.progress_display)
         window_key_layout.addLayout(progress_layout)
 
+        self.key_input.textChanged.connect(self.save_config)
+        self.delay_input.valueChanged.connect(self.save_config)
+        self.loop_interval_input.valueChanged.connect(self.save_config)
+        self.background_cb.toggled.connect(self.save_config)
+
+        last_window = self.saved_config.get('last_window')
+        if isinstance(last_window, dict) and last_window.get('title'):
+            self.window_label.setText(
+                f"上次：{last_window['title']}"
+                f" #{last_window.get('number', 1)} · PID {last_window.get('pid', 0)}（请重新选择）"
+            )
+
         # 添加到左侧布局
         self.parent.left_layout.addWidget(self.group_box)
+
+    @staticmethod
+    def _load_config():
+        try:
+            value = json.loads(CONFIG_FILE.read_text(encoding='utf-8'))
+            return value if isinstance(value, dict) else {}
+        except (FileNotFoundError, OSError, ValueError, json.JSONDecodeError):
+            return {}
+
+    def save_config(self, *_args):
+        config = {
+            'key_combination': self.key_input.text(),
+            'delay_between_keys': self.delay_input.value(),
+            'loop_interval': self.loop_interval_input.value(),
+            'background_mode': self.background_cb.isChecked(),
+        }
+        previous_window = self.saved_config.get('last_window')
+        if isinstance(previous_window, dict):
+            config['last_window'] = previous_window
+        CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            CONFIG_FILE.write_text(
+                json.dumps(config, ensure_ascii=False, indent=2),
+                encoding='utf-8',
+            )
+            self.saved_config = config
+        except OSError as error:
+            self.status_label.setText(f'状态: 配置保存失败：{error}')
     
     def choose_window(self):
         handler = WindowHandler()
@@ -212,6 +256,12 @@ class WindowKeyFeature:
             title = str(info.get('title') or handler.window.title)
             self.window_label.setText(f"{alias}{title}{number}{pid}")
             self.status_label.setText('状态: 已选择窗口')
+            self.saved_config['last_window'] = {
+                'title': title,
+                'number': int(info.get('number') or 1),
+                'pid': int(info.get('pid') or 0),
+            }
+            self.save_config()
 
     def toggle(self):
         if self.is_running:
@@ -231,6 +281,7 @@ class WindowKeyFeature:
             return
         delay = self.delay_input.value()
         loop_interval = self.loop_interval_input.value()
+        self.save_config()
         self.worker = WindowKeyWorker(key_combination, self.selected_hwnd, delay, loop_interval, self.background_cb.isChecked())
         self.worker.status_updated.connect(self.on_status_updated)
         self.worker.progress_updated.connect(self.on_progress_updated)

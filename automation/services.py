@@ -1,3 +1,4 @@
+import ctypes
 import time
 import uuid
 from pathlib import Path
@@ -35,6 +36,7 @@ class AutomationHost:
         self.bound_window_id: str | None = None
         self.window_handler = WindowHandler()
         self.keyboard = Win32Keyboard()
+        self.held_keys: set[tuple[str, str]] = set()
 
     def register_window(self, info: dict[str, Any]) -> WindowReference:
         hwnd = int(info['hwnd'])
@@ -62,14 +64,20 @@ class AutomationHost:
         handlers = {
             'window.current': self._window_current,
             'window.is_alive': self._window_is_alive,
+            'window.activate': self._window_activate,
             'capture.window': self._capture_window,
             'vision.find_image': self._find_image,
             'vision.get_color': self._get_color,
             'vision.compare_color': self._compare_color,
             'ocr.recognize': self._ocr_recognize,
             'mouse.click': self._mouse_click,
+            'mouse.move': self._mouse_move,
             'keyboard.press': self._keyboard_press,
+            'keyboard.key_down': self._keyboard_key_down,
+            'keyboard.key_up': self._keyboard_key_up,
             'keyboard.hotkey': self._keyboard_hotkey,
+            'keyboard.hold_combo': self._keyboard_hold_combo,
+            'keyboard.directional_jump': self._keyboard_directional_jump,
             'keyboard.type_text': self._keyboard_type_text,
             'storage.read_json': self._storage_read_json,
             'storage.write_json': self._storage_write_json,
@@ -108,6 +116,54 @@ class AutomationHost:
 
     def _window_is_alive(self, _params: dict[str, Any]) -> bool:
         return bool(win32gui.IsWindow(self._current_window().hwnd))
+
+    def _activate_bound_window(self) -> bool:
+        """Reliably move keyboard focus to the bound window on Windows."""
+        hwnd = self._current_window().hwnd
+        if not win32gui.IsWindow(hwnd):
+            raise RuntimeError('目标窗口已经失效')
+        if self.dry_run:
+            return True
+        if win32gui.IsIconic(hwnd):
+            win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
+
+        user32 = ctypes.windll.user32
+        current_thread = int(ctypes.windll.kernel32.GetCurrentThreadId())
+        target_thread = int(user32.GetWindowThreadProcessId(hwnd, None))
+        foreground = win32gui.GetForegroundWindow()
+        foreground_thread = (
+            int(user32.GetWindowThreadProcessId(foreground, None)) if foreground else 0
+        )
+        attached_threads = []
+        try:
+            for thread_id in {target_thread, foreground_thread}:
+                if thread_id and thread_id != current_thread:
+                    try:
+                        user32.AttachThreadInput(current_thread, thread_id, True)
+                        attached_threads.append(thread_id)
+                    except Exception:
+                        pass
+            win32gui.ShowWindow(hwnd, win32con.SW_SHOW)
+            win32gui.BringWindowToTop(hwnd)
+            win32gui.SetForegroundWindow(hwnd)
+            try:
+                win32gui.SetFocus(hwnd)
+            except Exception:
+                pass
+        finally:
+            for thread_id in reversed(attached_threads):
+                try:
+                    user32.AttachThreadInput(current_thread, thread_id, False)
+                except Exception:
+                    pass
+        time.sleep(0.12)
+        return win32gui.GetForegroundWindow() == hwnd
+
+    def _window_activate(self, _params: dict[str, Any]) -> dict[str, Any]:
+        active = self._activate_bound_window()
+        if not active:
+            raise RuntimeError('无法激活绑定窗口，请确认游戏窗口未被系统限制或关闭')
+        return {'active': True, 'dry_run': self.dry_run}
 
     def _capture_window(self, params: dict[str, Any]) -> dict[str, Any]:
         window = self._current_window()
@@ -227,7 +283,22 @@ class AutomationHost:
             self._ocr_engine = Ocr()
         image = self._frame(str(params['frame_id']))
         minimum = float(params.get('min_confidence', 0.5))
-        result = self._ocr_engine.do_ocr_ext(cv2.cvtColor(image, cv2.COLOR_RGB2BGR))
+        variant = params.get('preprocess', 'none')
+        if variant not in ('none', 'minimap_scale', 'minimap_yellow', 'task_scale', 'task_yellow'):
+            raise ValueError(f'未知 OCR 预处理方式：{variant}')
+        prepared = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
+        scale, padding = 1, 0
+        if variant != 'none':
+            scale, padding = 3, 24
+            if variant in ('minimap_yellow', 'task_yellow'):
+                hsv = cv2.cvtColor(image, cv2.COLOR_RGB2HSV)
+                mask = cv2.inRange(hsv, (15, 65, 90), (45, 255, 255))
+                prepared = cv2.cvtColor(255 - mask, cv2.COLOR_GRAY2BGR)
+            prepared = cv2.resize(prepared, None, fx=scale, fy=scale, interpolation=cv2.INTER_CUBIC)
+            prepared = cv2.copyMakeBorder(prepared, padding, padding, padding, padding,
+                                          cv2.BORDER_CONSTANT,
+                                          value=(255, 255, 255) if variant == 'minimap_yellow' else (0, 0, 0))
+        result = self._ocr_engine.do_ocr_ext(prepared)
         lines = []
         for item in result or []:
             if len(item) < 2 or len(item[1]) < 2:
@@ -235,7 +306,8 @@ class AutomationHost:
             text, confidence = str(item[1][0]), float(item[1][1])
             if confidence < minimum:
                 continue
-            points = [[int(point[0]), int(point[1])] for point in item[0]]
+            points = [[max(0, min(image.shape[1]-1, round((point[0]-padding)/scale))),
+                       max(0, min(image.shape[0]-1, round((point[1]-padding)/scale)))] for point in item[0]]
             xs, ys = [point[0] for point in points], [point[1] for point in points]
             lines.append({
                 'text': text,
@@ -273,14 +345,35 @@ class AutomationHost:
             win32gui.PostMessage(window.hwnd, message_down, key_flag, position)
             win32gui.PostMessage(window.hwnd, message_up, 0, position)
         else:
-            win32gui.ShowWindow(window.hwnd, win32con.SW_RESTORE)
-            win32gui.SetForegroundWindow(window.hwnd)
+            self._activate_bound_window()
             origin_x = client_left if coordinate_space == 'client' else window_left
             origin_y = client_top if coordinate_space == 'client' else window_top
             pyautogui.click(origin_x + x, origin_y + y, button=button)
         return {
             'executed': True, 'dry_run': False, 'x': x, 'y': y,
             'mode': mode, 'coordinate_space': coordinate_space,
+        }
+
+    def _mouse_move(self, params: dict[str, Any]) -> dict[str, Any]:
+        window = self._current_window()
+        x, y = int(params['x']), int(params['y'])
+        duration = max(0.0, min(1.0, float(params.get('duration', 0))))
+        coordinate_space = str(params.get('coordinate_space', 'client'))
+        window_left, window_top, window_right, window_bottom = win32gui.GetWindowRect(window.hwnd)
+        client_left, client_top = win32gui.ClientToScreen(window.hwnd, (0, 0))
+        _, _, client_width, client_height = win32gui.GetClientRect(window.hwnd)
+        limit_width = client_width if coordinate_space == 'client' else window_right - window_left
+        limit_height = client_height if coordinate_space == 'client' else window_bottom - window_top
+        if x < 0 or y < 0 or x >= limit_width or y >= limit_height:
+            raise ValueError('鼠标移动坐标超出绑定窗口范围')
+        if self.dry_run:
+            return {'executed': False, 'dry_run': True, 'x': x, 'y': y}
+        origin_x = client_left if coordinate_space == 'client' else window_left
+        origin_y = client_top if coordinate_space == 'client' else window_top
+        pyautogui.moveTo(origin_x + x, origin_y + y, duration=duration)
+        return {
+            'executed': True, 'dry_run': False, 'x': x, 'y': y,
+            'coordinate_space': coordinate_space,
         }
 
     def _keyboard_press(self, params: dict[str, Any]) -> dict[str, Any]:
@@ -292,8 +385,43 @@ class AutomationHost:
         if mode == 'background':
             self.keyboard.background_press(window.hwnd, key)
         else:
+            self._activate_bound_window()
             self.keyboard.press(key)
         return {'executed': True, 'dry_run': False, 'key': key, 'mode': mode}
+
+    def _keyboard_key_down(self, params: dict[str, Any]) -> dict[str, Any]:
+        window = self._current_window()
+        key = str(params['key'])
+        mode = str(params.get('mode', 'foreground'))
+        if not self.dry_run:
+            if mode == 'background':
+                self.keyboard.background_key_down(window.hwnd, key)
+            else:
+                self._activate_bound_window()
+                self.keyboard.hold_key(key)
+            self.held_keys.add((mode, key))
+        return {'executed': not self.dry_run, 'dry_run': self.dry_run, 'key': key, 'mode': mode}
+
+    def _keyboard_key_up(self, params: dict[str, Any]) -> dict[str, Any]:
+        window = self._current_window()
+        key = str(params['key'])
+        mode = str(params.get('mode', 'foreground'))
+        if not self.dry_run:
+            if mode == 'background':
+                self.keyboard.background_key_up(window.hwnd, key)
+            else:
+                self.keyboard.release_key(key)
+            self.held_keys.discard((mode, key))
+        return {'executed': not self.dry_run, 'dry_run': self.dry_run, 'key': key, 'mode': mode}
+
+    def release_all_keys(self) -> None:
+        """Best-effort release for movement keys held by a plugin."""
+        for mode, key in list(self.held_keys):
+            try:
+                self._keyboard_key_up({'key': key, 'mode': mode})
+            except Exception:
+                pass
+        self.held_keys.clear()
 
     def _keyboard_hotkey(self, params: dict[str, Any]) -> dict[str, Any]:
         window = self._current_window()
@@ -304,8 +432,104 @@ class AutomationHost:
         if mode == 'background':
             self.keyboard.background_press_combination(window.hwnd, *keys)
         else:
+            self._activate_bound_window()
             self.keyboard.press_combination(*keys)
         return {'executed': True, 'dry_run': False, 'keys': keys, 'mode': mode}
+
+    def _keyboard_hold_combo(self, params: dict[str, Any]) -> dict[str, Any]:
+        """Activate once, then hold all keys as one atomic game input chord."""
+        window = self._current_window()
+        keys = [str(key) for key in params.get('keys', [])]
+        duration = float(params.get('duration', 0.15))
+        mode = str(params.get('mode', 'foreground'))
+        if not keys:
+            raise ValueError('组合按键不能为空')
+        if not 0.02 <= duration <= 3:
+            raise ValueError('组合按键保持时间必须在 0.02 到 3 秒之间')
+        if self.dry_run:
+            return {'executed': False, 'dry_run': True, 'keys': keys,
+                    'duration': duration, 'mode': mode}
+        if mode == 'foreground':
+            self._activate_bound_window()
+        pressed = []
+        try:
+            for key in keys:
+                if mode == 'background':
+                    self.keyboard.background_key_down(window.hwnd, key)
+                else:
+                    self.keyboard.hold_key(key)
+                pressed.append(key)
+                self.held_keys.add((mode, key))
+            time.sleep(duration)
+        finally:
+            for key in reversed(pressed):
+                if mode == 'background':
+                    self.keyboard.background_key_up(window.hwnd, key)
+                else:
+                    self.keyboard.release_key(key)
+                self.held_keys.discard((mode, key))
+        return {'executed': True, 'dry_run': False, 'keys': keys,
+                'duration': duration, 'mode': mode}
+
+    def _keyboard_directional_jump(self, params: dict[str, Any]) -> dict[str, Any]:
+        """Send a game-style jump with direction lead-in and airborne steering."""
+        window = self._current_window()
+        direction = str(params.get('direction', '')).lower()
+        if direction not in {'left', 'right'}:
+            raise ValueError('跳跃方向必须是 left 或 right')
+        lead_time = float(params.get('lead_time', 0.1))
+        jump_hold = float(params.get('jump_hold', 0.12))
+        follow_time = float(params.get('follow_time', 0.25))
+        mode = str(params.get('mode', 'foreground'))
+        if any(value < 0 or value > 2 for value in (lead_time, jump_hold, follow_time)):
+            raise ValueError('跳跃按键阶段时长必须在 0 到 2 秒之间')
+        if jump_hold < 0.03:
+            raise ValueError('空格保持时间不能短于 0.03 秒')
+        if self.dry_run:
+            return {
+                'executed': False, 'dry_run': True, 'direction': direction,
+                'lead_time': lead_time, 'jump_hold': jump_hold,
+                'follow_time': follow_time, 'mode': mode,
+            }
+        if mode == 'foreground':
+            self._activate_bound_window()
+
+        def key_down(key: str) -> None:
+            if mode == 'background':
+                self.keyboard.background_key_down(window.hwnd, key)
+            else:
+                self.keyboard.hold_key(key)
+            self.held_keys.add((mode, key))
+
+        def key_up(key: str) -> None:
+            if mode == 'background':
+                self.keyboard.background_key_up(window.hwnd, key)
+            else:
+                self.keyboard.release_key(key)
+            self.held_keys.discard((mode, key))
+
+        direction_down = False
+        space_down = False
+        try:
+            key_down(direction)
+            direction_down = True
+            time.sleep(lead_time)
+            key_down('space')
+            space_down = True
+            time.sleep(jump_hold)
+            key_up('space')
+            space_down = False
+            time.sleep(follow_time)
+        finally:
+            if space_down:
+                key_up('space')
+            if direction_down:
+                key_up(direction)
+        return {
+            'executed': True, 'dry_run': False, 'direction': direction,
+            'lead_time': lead_time, 'jump_hold': jump_hold,
+            'follow_time': follow_time, 'mode': mode,
+        }
 
     def _keyboard_type_text(self, params: dict[str, Any]) -> dict[str, Any]:
         window = self._current_window()
@@ -318,8 +542,7 @@ class AutomationHost:
                 win32gui.SendMessage(window.hwnd, win32con.WM_CHAR, ord(character), 0)
         else:
             import win32clipboard
-            win32gui.ShowWindow(window.hwnd, win32con.SW_RESTORE)
-            win32gui.SetForegroundWindow(window.hwnd)
+            self._activate_bound_window()
             previous = None
             try:
                 win32clipboard.OpenClipboard()

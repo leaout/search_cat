@@ -92,6 +92,7 @@ class PluginProcess(QObject):
         if self.process.state() == QProcess.NotRunning:
             return
         self.state_changed.emit('stopping')
+        self.host.release_all_keys()
         self.process.terminate()
         QTimer.singleShot(2000, self._kill_if_running)
 
@@ -168,5 +169,6 @@ class PluginProcess(QObject):
         self.log_received.emit(text)
 
     def _on_finished(self, exit_code: int, _exit_status) -> None:
+        self.host.release_all_keys()
         self.state_changed.emit('stopped' if exit_code != 0 else 'completed')
         self.finished.emit(exit_code)

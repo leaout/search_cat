@@ -1,0 +1,145 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-50 -50 4100 1900">
+<rect x="-50" y="-50" width="4100" height="1900" fill="white"/>
+<line x1="0" y1="1620" x2="3990" y2="1620" stroke="#1565c0" stroke-width="5"/>
+<text x="0" y="1612" font-size="22">6:t2</text>
+<line x1="740" y1="1570" x2="1180" y2="1230" stroke="#e65100" stroke-width="5"/>
+<text x="740" y="1562" font-size="22">12:t4</text>
+<line x1="1180" y1="1230" x2="2830" y2="1230" stroke="#1565c0" stroke-width="5"/>
+<text x="1180" y="1222" font-size="22">13:t2</text>
+<line x1="2830" y1="1230" x2="3250" y2="1570" stroke="#e65100" stroke-width="5"/>
+<text x="2830" y="1222" font-size="22">14:t4</text>
+<line x1="0" y1="940" x2="1090" y2="940" stroke="#1565c0" stroke-width="5"/>
+<text x="0" y="932" font-size="22">15:t2</text>
+<line x1="1090" y1="940" x2="1370" y2="1180" stroke="#e65100" stroke-width="5"/>
+<text x="1090" y="932" font-size="22">16:t4</text>
+<line x1="2600" y1="1190" x2="2940" y2="910" stroke="#e65100" stroke-width="5"/>
+<text x="2600" y="1182" font-size="22">17:t4</text>
+<line x1="2940" y1="910" x2="3990" y2="910" stroke="#1565c0" stroke-width="5"/>
+<text x="2940" y="902" font-size="22">18:t2</text>
+<line x1="970" y1="880" x2="1440" y2="590" stroke="#e65100" stroke-width="5"/>
+<text x="970" y="872" font-size="22">19:t4</text>
+<line x1="1440" y1="590" x2="2630" y2="590" stroke="#1565c0" stroke-width="5"/>
+<text x="1440" y="582" font-size="22">20:t2</text>
+<line x1="2630" y1="590" x2="3030" y2="860" stroke="#e65100" stroke-width="5"/>
+<text x="2630" y="582" font-size="22">21:t4</text>
+<line x1="1700" y1="1200" x2="1840" y2="1090" stroke="#e65100" stroke-width="5"/>
+<text x="1700" y="1192" font-size="22">23:t4</text>
+<line x1="1840" y1="1090" x2="2190" y2="1090" stroke="#1565c0" stroke-width="5"/>
+<text x="1840" y="1082" font-size="22">24:t2</text>
+<line x1="2190" y1="1090" x2="2330" y2="1200" stroke="#e65100" stroke-width="5"/>
+<text x="2190" y="1082" font-size="22">25:t4</text>
+<line x1="1720" y1="560" x2="1840" y2="460" stroke="#e65100" stroke-width="5"/>
+<text x="1720" y="552" font-size="22">26:t4</text>
+<line x1="1840" y1="460" x2="2210" y2="460" stroke="#1565c0" stroke-width="5"/>
+<text x="1840" y="452" font-size="22">27:t2</text>
+<line x1="2210" y1="460" x2="2320" y2="550" stroke="#e65100" stroke-width="5"/>
+<text x="2210" y="452" font-size="22">28:t4</text>
+<line x1="3080" y1="1380" x2="3400" y2="1380" stroke="#1565c0" stroke-width="5"/>
+<text x="3080" y="1372" font-size="22">29:t2</text>
+<line x1="3370" y1="1450" x2="3490" y2="1450" stroke="#1565c0" stroke-width="5"/>
+<text x="3370" y="1442" font-size="22">30:t2</text>
+<line x1="3300" y1="1330" x2="3520" y2="1330" stroke="#1565c0" stroke-width="5"/>
+<text x="3300" y="1322" font-size="22">31:t2</text>
+<line x1="3480" y1="1390" x2="3700" y2="1390" stroke="#1565c0" stroke-width="5"/>
+<text x="3480" y="1382" font-size="22">32:t2</text>
+<line x1="3560" y1="1590" x2="3590" y2="1550" stroke="#e65100" stroke-width="5"/>
+<text x="3560" y="1582" font-size="22">54:t4</text>
+<line x1="3590" y1="1550" x2="3630" y2="1550" stroke="#1565c0" stroke-width="5"/>
+<text x="3590" y="1542" font-size="22">55:t2</text>
+<line x1="3610" y1="1580" x2="3620" y2="1580" stroke="#1565c0" stroke-width="5"/>
+<text x="3610" y="1572" font-size="22">56:t2</text>
+<line x1="3500" y1="1580" x2="3530" y2="1580" stroke="#1565c0" stroke-width="5"/>
+<text x="3500" y="1572" font-size="22">57:t2</text>
+<line x1="2420" y1="1500" x2="2570" y2="1500" stroke="#1565c0" stroke-width="5"/>
+<text x="2420" y="1492" font-size="22">61:t2</text>
+<line x1="2420" y1="1440" x2="2570" y2="1440" stroke="#1565c0" stroke-width="5"/>
+<text x="2420" y="1432" font-size="22">63:t2</text>
+<line x1="2480" y1="1360" x2="2590" y2="1360" stroke="#1565c0" stroke-width="5"/>
+<text x="2480" y="1352" font-size="22">65:t2</text>
+<line x1="270" y1="1550" x2="330" y2="1550" stroke="#1565c0" stroke-width="5"/>
+<text x="270" y="1542" font-size="22">66:t2</text>
+<line x1="330" y1="1550" x2="360" y2="1590" stroke="#e65100" stroke-width="5"/>
+<text x="330" y="1542" font-size="22">67:t4</text>
+<line x1="390" y1="1580" x2="420" y2="1580" stroke="#1565c0" stroke-width="5"/>
+<text x="390" y="1572" font-size="22">68:t2</text>
+<line x1="290" y1="1580" x2="310" y2="1580" stroke="#1565c0" stroke-width="5"/>
+<text x="290" y="1572" font-size="22">70:t2</text>
+<line x1="520" y1="1390" x2="580" y2="1390" stroke="#1565c0" stroke-width="5"/>
+<text x="520" y="1382" font-size="22">77:t2</text>
+<line x1="580" y1="1390" x2="680" y2="1380" stroke="#e65100" stroke-width="5"/>
+<text x="580" y="1382" font-size="22">78:t4</text>
+<line x1="680" y1="1380" x2="910" y2="1380" stroke="#1565c0" stroke-width="5"/>
+<text x="680" y="1372" font-size="22">79:t2</text>
+<line x1="430" y1="1450" x2="550" y2="1450" stroke="#1565c0" stroke-width="5"/>
+<text x="430" y="1442" font-size="22">81:t2</text>
+<line x1="220" y1="1400" x2="470" y2="1400" stroke="#1565c0" stroke-width="5"/>
+<text x="220" y="1392" font-size="22">83:t2</text>
+<line x1="400" y1="1340" x2="640" y2="1340" stroke="#1565c0" stroke-width="5"/>
+<text x="400" y="1332" font-size="22">84:t2</text>
+<line x1="2300" y1="1570" x2="2340" y2="1570" stroke="#1565c0" stroke-width="5"/>
+<text x="2300" y="1562" font-size="22">96:t2</text>
+<line x1="2340" y1="1570" x2="2420" y2="1530" stroke="#e65100" stroke-width="5"/>
+<text x="2340" y="1562" font-size="22">97:t4</text>
+<line x1="2320" y1="1540" x2="2330" y2="1540" stroke="#1565c0" stroke-width="5"/>
+<text x="2320" y="1532" font-size="22">98:t2</text>
+<line x1="2330" y1="1540" x2="2390" y2="1510" stroke="#e65100" stroke-width="5"/>
+<text x="2330" y="1532" font-size="22">99:t4</text>
+<line x1="1790" y1="1500" x2="2010" y2="1500" stroke="#1565c0" stroke-width="5"/>
+<text x="1790" y="1492" font-size="22">101:t2</text>
+<line x1="1810" y1="1420" x2="1930" y2="1420" stroke="#1565c0" stroke-width="5"/>
+<text x="1810" y="1412" font-size="22">102:t2</text>
+<line x1="3380" y1="850" x2="3420" y2="850" stroke="#1565c0" stroke-width="5"/>
+<text x="3380" y="842" font-size="22">109:t2</text>
+<line x1="3660" y1="850" x2="3700" y2="850" stroke="#1565c0" stroke-width="5"/>
+<text x="3660" y="842" font-size="22">110:t2</text>
+<line x1="3550" y1="880" x2="3580" y2="840" stroke="#e65100" stroke-width="5"/>
+<text x="3550" y="872" font-size="22">111:t4</text>
+<line x1="3580" y1="840" x2="3620" y2="840" stroke="#1565c0" stroke-width="5"/>
+<text x="3580" y="832" font-size="22">112:t2</text>
+<line x1="1130" y1="610" x2="1370" y2="610" stroke="#1565c0" stroke-width="5"/>
+<text x="1130" y="602" font-size="22">113:t2</text>
+<line x1="1160" y1="480" x2="1280" y2="480" stroke="#1565c0" stroke-width="5"/>
+<text x="1160" y="472" font-size="22">114:t2</text>
+<line x1="1210" y1="350" x2="1260" y2="350" stroke="#1565c0" stroke-width="5"/>
+<text x="1210" y="342" font-size="22">115:t2</text>
+<line x1="850" y1="710" x2="1010" y2="710" stroke="#1565c0" stroke-width="5"/>
+<text x="850" y="702" font-size="22">116:t2</text>
+<line x1="640" y1="580" x2="860" y2="580" stroke="#1565c0" stroke-width="5"/>
+<text x="640" y="572" font-size="22">117:t2</text>
+<line x1="640" y1="500" x2="880" y2="500" stroke="#1565c0" stroke-width="5"/>
+<text x="640" y="492" font-size="22">123:t2</text>
+<line x1="2650" y1="590" x2="2820" y2="590" stroke="#1565c0" stroke-width="5"/>
+<text x="2650" y="582" font-size="22">124:t2</text>
+<line x1="2690" y1="460" x2="2810" y2="460" stroke="#1565c0" stroke-width="5"/>
+<text x="2690" y="452" font-size="22">125:t2</text>
+<line x1="2700" y1="340" x2="2760" y2="340" stroke="#1565c0" stroke-width="5"/>
+<text x="2700" y="332" font-size="22">126:t2</text>
+<line x1="3200" y1="460" x2="3380" y2="460" stroke="#1565c0" stroke-width="5"/>
+<text x="3200" y="452" font-size="22">130:t2</text>
+<line x1="3440" y1="570" x2="3780" y2="570" stroke="#1565c0" stroke-width="5"/>
+<text x="3440" y="562" font-size="22">131:t2</text>
+<line x1="3410" y1="680" x2="3720" y2="680" stroke="#1565c0" stroke-width="5"/>
+<text x="3410" y="672" font-size="22">132:t2</text>
+<line x1="10" y1="1280" x2="460" y2="1280" stroke="#1565c0" stroke-width="5"/>
+<text x="10" y="1272" font-size="22">134:t2</text>
+<line x1="60" y1="1280" x2="60" y2="1620" stroke="#2e7d32" stroke-width="5"/>
+<text x="60" y="1272" font-size="22">135:t8</text>
+<line x1="3480" y1="1280" x2="3800" y2="1280" stroke="#1565c0" stroke-width="5"/>
+<text x="3480" y="1272" font-size="22">136:t2</text>
+<line x1="3580" y1="1230" x2="3680" y2="1230" stroke="#1565c0" stroke-width="5"/>
+<text x="3580" y="1222" font-size="22">137:t2</text>
+<line x1="3560" y1="520" x2="3660" y2="520" stroke="#1565c0" stroke-width="5"/>
+<text x="3560" y="512" font-size="22">138:t2</text>
+<line x1="710" y1="440" x2="790" y2="440" stroke="#1565c0" stroke-width="5"/>
+<text x="710" y="432" font-size="22">141:t2</text>
+<line x1="310" y1="870" x2="480" y2="870" stroke="#1565c0" stroke-width="5"/>
+<text x="310" y="862" font-size="22">173:t2</text>
+<line x1="100" y1="450" x2="210" y2="450" stroke="#1565c0" stroke-width="5"/>
+<text x="100" y="442" font-size="22">174:t2</text>
+<line x1="0" y1="520" x2="310" y2="520" stroke="#1565c0" stroke-width="5"/>
+<text x="0" y="512" font-size="22">175:t2</text>
+<line x1="180" y1="610" x2="520" y2="610" stroke="#1565c0" stroke-width="5"/>
+<text x="180" y="602" font-size="22">176:t2</text>
+<line x1="280" y1="560" x2="410" y2="560" stroke="#1565c0" stroke-width="5"/>
+<text x="280" y="552" font-size="22">177:t2</text>
+</svg>

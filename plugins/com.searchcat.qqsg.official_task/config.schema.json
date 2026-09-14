@@ -1,6 +1,16 @@
 {
   "type": "object",
   "properties": {
+    "terrain_test_enabled": {
+      "type": "boolean",
+      "title": "仅执行地图调试中载入的实验路线",
+      "default": false
+    },
+    "terrain_test_plan": {
+      "type": "object",
+      "title": "地图调试生成的实验路线",
+      "default": {}
+    },
     "calibrated": {
       "type": "boolean",
       "title": "坐标已经校准",
@@ -35,52 +45,205 @@
       "title": "用于确认官爵任务存在的关键词",
       "default": "官爵"
     },
+    "prefer_task_click_navigation": {
+      "type": "boolean",
+      "title": "优先点击任务栏 NPC 使用游戏自动寻路",
+      "default": true
+    },
+    "task_cursor_park_point": {
+      "type": "array",
+      "title": "点击任务 NPC 后的鼠标停放坐标（留空则自动计算）",
+      "default": []
+    },
+    "native_navigation_max_scans": {
+      "type": "integer",
+      "title": "游戏自动寻路最大坐标检测次数",
+      "minimum": 5,
+      "maximum": 180,
+      "default": 45
+    },
+    "native_navigation_scan_interval": {
+      "type": "number",
+      "title": "游戏自动寻路坐标检测间隔秒数",
+      "minimum": 0.2,
+      "maximum": 3,
+      "default": 0.7
+    },
     "npc_routes": {
       "type": "object",
-      "title": "NPC 路由：名称 -> [地图ID, X, Y]",
+      "title": "NPC 位置：名称 -> [地图ID, X, Y]",
       "default": {}
     },
-    "friend_tab_point": {
-      "type": "array",
-      "title": "交流面板好友页坐标",
-      "default": [212, 137]
+    "navigation_routes": {
+      "type": "object",
+      "title": "定制路线：NPC -> {map, waypoints}",
+      "default": {}
     },
-    "add_friend_point": {
-      "type": "array",
-      "title": "添加好友按钮坐标",
-      "default": [454, 459]
+    "issuer_npc_name": {
+      "type": "string",
+      "title": "官爵任务发布 NPC 名称",
+      "default": "奋威中郎将"
     },
-    "friend_input_point": {
-      "type": "array",
-      "title": "添加好友输入框坐标",
-      "default": [339, 280]
+    "accept_mode": {
+      "type": "string",
+      "title": "领取任务方式",
+      "enum": ["enter_spam", "guided_click"],
+      "default": "enter_spam"
     },
-    "generated_link_point": {
-      "type": "array",
-      "title": "生成后的绿色寻路链接坐标",
-      "default": [339, 309]
-    },
-    "accept_point": {
-      "type": "array",
-      "title": "领取任务按钮客户区坐标",
-      "default": [400, 500]
-    },
-    "continue_point": {
-      "type": "array",
-      "title": "NPC 对话继续按钮客户区坐标",
-      "default": [400, 500]
-    },
-    "complete_point": {
-      "type": "array",
-      "title": "完成任务按钮客户区坐标",
-      "default": [400, 500]
-    },
-    "navigation_wait": {
-      "type": "number",
-      "title": "每次自动寻路等待秒数",
+    "accept_enter_count": {
+      "type": "integer",
+      "title": "领取任务连续回车次数",
       "minimum": 1,
-      "maximum": 120,
-      "default": 12
+      "maximum": 20,
+      "default": 7
+    },
+    "accept_enter_interval": {
+      "type": "number",
+      "title": "领取任务回车间隔秒数",
+      "minimum": 0.05,
+      "maximum": 2,
+      "default": 0.28
+    },
+    "restore_control_click_point": {
+      "type": "array",
+      "title": "接任务后恢复操作的客户区点击坐标（留空则自动计算）",
+      "default": []
+    },
+    "restore_control_wait": {
+      "type": "number",
+      "title": "恢复操作点击后的等待秒数",
+      "minimum": 0.1,
+      "maximum": 2,
+      "default": 0.35
+    },
+    "minimap_region": {
+      "type": "array",
+      "title": "小地图名称和坐标 OCR 区域 [x,y,w,h]",
+      "default": [540, 0, 250, 90]
+    },
+    "minimap_ocr_confidence": {
+      "type": "number",
+      "title": "小地图 OCR 最低置信度",
+      "minimum": 0.1,
+      "maximum": 1,
+      "default": 0.45
+    },
+    "arrival_tolerance": {
+      "type": "integer",
+      "title": "到达坐标容差",
+      "minimum": 0,
+      "maximum": 5,
+      "default": 1
+    },
+    "npc_arrival_radius": {
+      "type": "number",
+      "title": "NPC 到达判定半径",
+      "minimum": 0.5,
+      "maximum": 5,
+      "default": 1.5
+    },
+    "near_npc_move_pulse": {
+      "type": "number",
+      "title": "接近 NPC 时的点动秒数",
+      "minimum": 0.03,
+      "maximum": 0.3,
+      "default": 0.08
+    },
+    "seconds_per_coordinate": {
+      "type": "number",
+      "title": "每格坐标预计移动秒数",
+      "minimum": 0.02,
+      "maximum": 2,
+      "default": 0.18
+    },
+    "minimum_move_pulse": {
+      "type": "number",
+      "title": "最短移动脉冲秒数",
+      "minimum": 0.05,
+      "maximum": 1,
+      "default": 0.12
+    },
+    "maximum_move_pulse": {
+      "type": "number",
+      "title": "最长移动脉冲秒数",
+      "minimum": 0.1,
+      "maximum": 3,
+      "default": 0.8
+    },
+    "position_scan_interval": {
+      "type": "number",
+      "title": "移动后坐标识别等待秒数",
+      "minimum": 0.1,
+      "maximum": 3,
+      "default": 0.35
+    },
+    "position_read_retries": {
+      "type": "integer",
+      "title": "坐标识别失败重试次数",
+      "minimum": 1,
+      "maximum": 10,
+      "default": 3
+    },
+    "waypoint_max_attempts": {
+      "type": "integer",
+      "title": "单个路点最大纠偏次数",
+      "minimum": 1,
+      "maximum": 100,
+      "default": 30
+    },
+    "stuck_scan_limit": {
+      "type": "integer",
+      "title": "坐标不变多少次后跳跃脱困",
+      "minimum": 1,
+      "maximum": 10,
+      "default": 3
+    },
+    "jump_wait": {
+      "type": "number",
+      "title": "跳跃后等待秒数",
+      "minimum": 0.1,
+      "maximum": 3,
+      "default": 0.4
+    },
+    "npc_interaction": {
+      "type": "string",
+      "title": "NPC 对话方式",
+      "enum": ["keyboard_g", "mouse_double_click"],
+      "default": "keyboard_g"
+    },
+    "npc_double_click_point": {
+      "type": "array",
+      "title": "NPC 双击客户区坐标",
+      "default": [400, 300]
+    },
+    "double_click_interval": {
+      "type": "number",
+      "title": "双击间隔秒数",
+      "minimum": 0.05,
+      "maximum": 0.5,
+      "default": 0.12
+    },
+    "dialog_task_point": {
+      "type": "array",
+      "title": "对话/任务选项客户区坐标",
+      "default": [400, 500]
+    },
+    "task_entry_point": {
+      "type": "array",
+      "title": "官爵任务条目客户区坐标",
+      "default": [400, 500]
+    },
+    "accept_confirm_point": {
+      "type": "array",
+      "title": "请交给我吧客户区坐标",
+      "default": [400, 500]
+    },
+    "arrival_wait": {
+      "type": "number",
+      "title": "到达 NPC 后等待秒数",
+      "minimum": 0.1,
+      "maximum": 10,
+      "default": 0.8
     },
     "ui_wait": {
       "type": "number",

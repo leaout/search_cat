@@ -35,6 +35,10 @@ class WindowAPI:
     def is_alive(self) -> bool:
         return bool(self._call('window.is_alive', {}))
 
+    def activate(self) -> dict[str, Any]:
+        """Restore and activate the bound window before foreground input."""
+        return self._call('window.activate', {})
+
 
 class CaptureAPI:
     def __init__(self, call: Callable):
@@ -82,10 +86,12 @@ class OCRAPI:
     def __init__(self, call: Callable):
         self._call = call
 
-    def recognize(self, frame: Frame, min_confidence: float = 0.5) -> list[dict[str, Any]]:
+    def recognize(self, frame: Frame, min_confidence: float = 0.5,
+                  preprocess: str = 'none') -> list[dict[str, Any]]:
         return self._call('ocr.recognize', {
             'frame_id': frame.id,
             'min_confidence': min_confidence,
+            'preprocess': preprocess,
         })
 
 
@@ -106,6 +112,14 @@ class MouseAPI:
             'coordinate_space': coordinate_space,
         })
 
+    def move(self, x: int, y: int, duration: float = 0,
+             coordinate_space: str = 'client') -> dict[str, Any]:
+        """Move the real cursor without clicking."""
+        return self._call('mouse.move', {
+            'x': x, 'y': y, 'duration': duration,
+            'mode': 'foreground', 'coordinate_space': coordinate_space,
+        })
+
 
 class KeyboardAPI:
     def __init__(self, call: Callable):
@@ -114,8 +128,33 @@ class KeyboardAPI:
     def press(self, key: str, mode: str = 'foreground') -> dict[str, Any]:
         return self._call('keyboard.press', {'key': key, 'mode': mode})
 
+    def key_down(self, key: str, mode: str = 'foreground') -> dict[str, Any]:
+        return self._call('keyboard.key_down', {'key': key, 'mode': mode})
+
+    def key_up(self, key: str, mode: str = 'foreground') -> dict[str, Any]:
+        return self._call('keyboard.key_up', {'key': key, 'mode': mode})
+
     def hotkey(self, *keys: str, mode: str = 'foreground') -> dict[str, Any]:
         return self._call('keyboard.hotkey', {'keys': list(keys), 'mode': mode})
+
+    def hold_combo(self, *keys: str, duration: float = 0.15,
+                   mode: str = 'foreground') -> dict[str, Any]:
+        """Hold several keys simultaneously for a controlled duration."""
+        return self._call('keyboard.hold_combo', {
+            'keys': list(keys), 'duration': duration, 'mode': mode,
+        })
+
+    def directional_jump(self, direction: str, lead_time: float = 0.1,
+                         jump_hold: float = 0.12, follow_time: float = 0.25,
+                         mode: str = 'foreground') -> dict[str, Any]:
+        """Hold direction, press Space, then keep steering through the jump."""
+        return self._call('keyboard.directional_jump', {
+            'direction': direction,
+            'lead_time': lead_time,
+            'jump_hold': jump_hold,
+            'follow_time': follow_time,
+            'mode': mode,
+        })
 
     def type_text(self, text: str, mode: str = 'foreground') -> dict[str, Any]:
         return self._call('keyboard.type_text', {'text': text, 'mode': mode})

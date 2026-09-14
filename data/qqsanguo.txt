@@ -11276,7 +11276,7 @@
     },
     {
         "q": "QQ三国军团战，击杀对手可以获得战斗积分，请问击杀不低于自己多少级的玩家可以获得积分呢？",
-        "ans": "21级以内",
+        "ans": "51级以内",
         "p": "QQsgjtz，jsdskyhdzdjf，qwjsbdyzjdsjdwjkyhdjfn？"
     },
     {

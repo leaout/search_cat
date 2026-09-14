@@ -2,6 +2,8 @@ import json
 import shutil
 from pathlib import Path
 
+import cv2
+import win32gui
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QImage, QPixmap
 from PyQt5.QtWidgets import (QCheckBox, QDialog, QDialogButtonBox, QFileDialog, QGroupBox, QHBoxLayout,
@@ -12,7 +14,8 @@ from PyQt5.QtWidgets import (QCheckBox, QDialog, QDialogButtonBox, QFileDialog, 
 from core.winhandler import WindowHandler
 from core.text import repair_utf8_gbk_mojibake
 from plugin_platform.manager import PluginManager, PluginManifest
-from plugin_platform.qqsg_data import find_installation, import_routes
+from plugin_platform.qqsg_data import (QQSGPackage, find_installation, import_routes,
+                                       parse_map_catalog)
 from plugin_platform.runner import PluginProcess
 
 
@@ -126,8 +129,19 @@ class ScriptPlatformFeature:
         import_game_data_btn = QPushButton('导入游戏数据')
         import_game_data_btn.setToolTip('只读解析 QQ 三国 objects.pkg，不修改游戏文件')
         import_game_data_btn.clicked.connect(self.import_qqsg_game_data)
+        select_minimap_btn = QPushButton('框选小地图')
+        select_minimap_btn.setToolTip('从绑定窗口的后台截图中框选地图名称和坐标')
+        select_minimap_btn.clicked.connect(self.select_qqsg_minimap_region)
+        select_task_btn = QPushButton('框选任务栏')
+        select_task_btn.setToolTip('从绑定窗口的后台截图中框选右侧任务文字区域')
+        select_task_btn.clicked.connect(self.select_qqsg_task_region)
         qqsg_data_layout.addWidget(self.qqsg_data_status, 1)
+        qqsg_data_layout.addWidget(select_minimap_btn)
+        qqsg_data_layout.addWidget(select_task_btn)
         qqsg_data_layout.addWidget(import_game_data_btn)
+        map_debug_btn = QPushButton('地图调试')
+        map_debug_btn.clicked.connect(self.open_map_debug)
+        qqsg_data_layout.addWidget(map_debug_btn)
         self.qqsg_data_panel.setVisible(False)
         control_layout.addWidget(self.qqsg_data_panel)
 
@@ -203,6 +217,144 @@ class ScriptPlatformFeature:
         self.parent.left_layout.addWidget(self.group_box)
         self.refresh_plugins()
 
+    def open_map_debug(self):
+        from feature.map_debug_dialog import MapDebugDialog
+        config = self.current_config
+        saved = config.get('route_data_source', {}).get('game_directory', '')
+        installation = Path(saved) if saved else find_installation()
+        if not installation or not (installation / 'data/objects.pkg').is_file():
+            selected = QFileDialog.getExistingDirectory(self.group_box, '选择 QQ 三国安装目录')
+            if not selected:
+                return
+            installation = Path(selected)
+        try:
+            manifest = self.current_manifest()
+            npc_file = manifest.directory / 'assets/data/npc_locations.json' if manifest else None
+            captured_npcs = []
+            captured_maps = config.get('captured_npc_maps', {})
+            if isinstance(captured_maps, dict) and captured_maps:
+                for map_value in captured_maps.values():
+                    if not isinstance(map_value, dict):
+                        continue
+                    for name, value in map_value.get('npcs', {}).items():
+                        if isinstance(value, dict):
+                            captured_npcs.append({
+                                'name': name,
+                                'map': map_value.get('map', ''),
+                                'map_id': map_value.get('map_id'),
+                                **value,
+                            })
+            captured_config = config.get('captured_npc_routes', {})
+            if not captured_npcs and isinstance(captured_config, dict):
+                for name, value in captured_config.items():
+                    if isinstance(value, dict):
+                        captured_npcs.append({'name': name, **value})
+            map_package = installation / 'data/update.pkg'
+            if not map_package.is_file():
+                map_package = installation / 'data/objects.pkg'
+            map_catalog = parse_map_catalog(QQSGPackage(map_package).read('res/Txt/MapData.txt'))
+            dialog = MapDebugDialog(
+                installation / 'data/objects.pkg',
+                npc_file=npc_file,
+                captured_npcs=captured_npcs,
+                map_catalog=map_catalog,
+                window_handler=self.window_handler,
+                hwnd=int(self.target_window_info['hwnd']) if self.target_window_info else None,
+                parent=self.group_box,
+            )
+            dialog.plan_selected.connect(self.load_terrain_test)
+            dialog.npcs_collected.connect(self.save_captured_npcs)
+            self.save_terrain_model(dialog.terrain_model())
+            dialog.exec_()
+        except Exception as error:
+            QMessageBox.warning(self.group_box, '地图加载失败', str(error))
+
+    def save_terrain_model(self, model: dict):
+        """Persist reusable terrain independently from optional test routes."""
+        manifest = self.current_manifest()
+        if not manifest or manifest.id != 'com.searchcat.qqsg.official-task':
+            return
+        config = self._read_config()
+        models = dict(config.get('terrain_models', {})) if isinstance(config.get('terrain_models'), dict) else {}
+        models[str(model['map'])] = model
+        config['terrain_models'] = models
+        self.manager.save_config(manifest, config)
+        self.current_config = config
+        self._log(f'[地形模型] 已保存 {model["map"]}，正式任务可按实时起点规划')
+
+    def save_captured_npcs(self, records: list):
+        """Merge NPC coordinates captured from the game's own navigation panel."""
+        manifest = self.current_manifest()
+        if not manifest or manifest.id != 'com.searchcat.qqsg.official-task' or not records:
+            return
+        config = self._read_config()
+        routes = config.get('npc_routes', {})
+        navigation = config.get('navigation_routes', {})
+        captured = config.get('captured_npc_routes', {})
+        captured_maps = config.get('captured_npc_maps', {})
+        routes = dict(routes) if isinstance(routes, dict) else {}
+        navigation = dict(navigation) if isinstance(navigation, dict) else {}
+        captured = dict(captured) if isinstance(captured, dict) else {}
+        captured_maps = dict(captured_maps) if isinstance(captured_maps, dict) else {}
+        for record in records:
+            name = str(record['name'])
+            route = [int(record['map_id']), int(record['x']), int(record['y'])]
+            routes[name] = route
+            captured[name] = {
+                'map': str(record['map']), 'map_id': route[0],
+                'x': route[1], 'y': route[2],
+                'ocr_confidence': float(record.get('confidence', 0)),
+            }
+            map_key = str(route[0])
+            map_record = dict(captured_maps.get(map_key, {}))
+            map_npcs = dict(map_record.get('npcs', {})) if isinstance(map_record.get('npcs', {}), dict) else {}
+            map_npcs[name] = {
+                'x': route[1], 'y': route[2],
+                'ocr_confidence': float(record.get('confidence', 0)),
+            }
+            captured_maps[map_key] = {
+                'map': str(record['map']), 'map_id': route[0], 'npcs': map_npcs,
+            }
+            existing_path = navigation.get(name)
+            existing_waypoints = existing_path.get('waypoints', []) if isinstance(existing_path, dict) else []
+            if not isinstance(existing_waypoints, list) or len(existing_waypoints) <= 1:
+                # Replace legacy/imported direct endpoints. Multi-point paths
+                # were explicitly calibrated by the user and remain intact.
+                navigation[name] = {
+                    'map': str(record['map']),
+                    'waypoints': [[route[1], route[2]]],
+                }
+        config['npc_routes'] = routes
+        config['navigation_routes'] = navigation
+        config['captured_npc_routes'] = captured
+        config['captured_npc_maps'] = captured_maps
+        self.manager.save_config(manifest, config)
+        self.current_config = config
+        self._update_qqsg_data_controls(manifest, config)
+        self._log(f'[NPC 采集] 已保存 {len(records)} 条游戏寻路窗口坐标')
+
+    def load_terrain_test(self, plan):
+        manifest = self.current_manifest()
+        if not manifest:
+            return
+        config = dict(self.current_config)
+        config['terrain_test_plan'] = plan
+        config['terrain_test_enabled'] = True
+        config['terrain_test_pending'] = True
+        terrain_models = dict(config.get('terrain_models', {})) if isinstance(config.get('terrain_models'), dict) else {}
+        terrain_models[str(plan.get('map', '成都.子城'))] = {
+            'map': str(plan.get('map', '成都.子城')),
+            'scale': float(plan.get('scale', 100)),
+            'terrain_records': plan.get('terrain_records', []),
+            'planner': plan.get('planner', {}),
+        }
+        config['terrain_models'] = terrain_models
+        self.manager.save_config(manifest, config)
+        self.current_config = config
+        QMessageBox.information(self.group_box, '已载入寻路测试',
+                                '启动脚本将只测试该路线。请先模拟运行核对日志，再取消模拟进行实测。'
+                                '\n恢复官爵任务时，在配置中将 terrain_test_enabled 改为 false。')
+
     def refresh_plugins(self):
         selected_id = self.current_manifest().id if self.current_manifest() else None
         self.manifests, errors = self.manager.discover()
@@ -241,13 +393,16 @@ class ScriptPlatformFeature:
         description = f'{manifest.description}\n权限：{permissions}'
         self.plugin_description.setText(description)
         self.plugin_description.setToolTip(description)
-        self._rebuild_template_controls(manifest)
         try:
             config = self.manager.load_config(manifest)
+            if manifest.id == 'com.searchcat.qqsg.official-task' and self._apply_captured_npc_precedence(config):
+                self.manager.save_config(manifest, config)
             self.current_config = config
+            self._rebuild_template_controls(manifest, config)
             self._update_qqsg_data_controls(manifest, config)
         except (OSError, ValueError, json.JSONDecodeError) as error:
             self.current_config = {}
+            self._rebuild_template_controls(manifest, {})
             self._log(f'[配置错误] {error}')
         self._update_start_enabled()
 
@@ -256,7 +411,124 @@ class ScriptPlatformFeature:
         self.qqsg_data_panel.setVisible(visible)
         if visible:
             route_count = len(config.get('npc_routes', {})) if isinstance(config.get('npc_routes'), dict) else 0
-            self.qqsg_data_status.setText(f'NPC 路由库：{route_count} 条')
+            captured_maps = config.get('captured_npc_maps', {})
+            map_count = len(captured_maps) if isinstance(captured_maps, dict) else 0
+            captured_count = sum(
+                len(value.get('npcs', {}))
+                for value in captured_maps.values()
+                if isinstance(value, dict) and isinstance(value.get('npcs'), dict)
+            ) if isinstance(captured_maps, dict) else 0
+            region = config.get('minimap_region')
+            region_text = f' · 小地图 {region}' if isinstance(region, list) and len(region) == 4 else ''
+            task_region = config.get('task_region')
+            task_region_text = (
+                f' · 任务栏 {task_region}'
+                if isinstance(task_region, list) and len(task_region) == 4 else ''
+            )
+            capture_text = f' · 已采集 {map_count} 图/{captured_count} NPC' if map_count else ''
+            self.qqsg_data_status.setText(
+                f'NPC 路由库：{route_count} 条{capture_text}{region_text}{task_region_text}'
+            )
+
+    @staticmethod
+    def _apply_captured_npc_precedence(config: dict) -> bool:
+        """Make captures authoritative and migrate them into the per-map catalog."""
+        captured = config.get('captured_npc_routes', {})
+        if not isinstance(captured, dict):
+            return False
+        routes = config.get('npc_routes', {})
+        navigation = config.get('navigation_routes', {})
+        routes = dict(routes) if isinstance(routes, dict) else {}
+        navigation = dict(navigation) if isinstance(navigation, dict) else {}
+        captured_maps = dict(config.get('captured_npc_maps', {})) \
+            if isinstance(config.get('captured_npc_maps'), dict) else {}
+        changed = False
+        for name, record in captured.items():
+            if not isinstance(record, dict):
+                continue
+            try:
+                endpoint = [int(record['map_id']), int(record['x']), int(record['y'])]
+            except (KeyError, TypeError, ValueError):
+                continue
+            if routes.get(name) != endpoint:
+                routes[name] = endpoint
+                changed = True
+            map_key = str(endpoint[0])
+            map_value = dict(captured_maps.get(map_key, {}))
+            map_npcs = dict(map_value.get('npcs', {})) if isinstance(map_value.get('npcs'), dict) else {}
+            captured_value = {
+                'x': endpoint[1], 'y': endpoint[2],
+                'ocr_confidence': float(record.get('ocr_confidence', 0)),
+            }
+            if map_npcs.get(name) != captured_value:
+                map_npcs[name] = captured_value
+                changed = True
+            captured_maps[map_key] = {
+                'map': str(record.get('map', map_value.get('map', ''))),
+                'map_id': endpoint[0], 'npcs': map_npcs,
+            }
+            existing_path = navigation.get(name)
+            waypoints = existing_path.get('waypoints', []) if isinstance(existing_path, dict) else []
+            direct_path = {'map': str(record.get('map', '')), 'waypoints': [[endpoint[1], endpoint[2]]]}
+            if (not isinstance(waypoints, list) or len(waypoints) <= 1) and existing_path != direct_path:
+                navigation[name] = direct_path
+                changed = True
+        config['npc_routes'] = routes
+        config['navigation_routes'] = navigation
+        config['captured_npc_maps'] = captured_maps
+        return changed
+
+    def select_qqsg_minimap_region(self):
+        self._select_qqsg_region(
+            'minimap_region', 'Select minimap name and coordinates', '小地图',
+        )
+
+    def select_qqsg_task_region(self):
+        self._select_qqsg_region(
+            'task_region', 'Select task sidebar text region', '任务栏',
+        )
+
+    def _select_qqsg_region(self, config_key: str, window_title: str, label: str):
+        manifest = self.current_manifest()
+        if not manifest or manifest.id != 'com.searchcat.qqsg.official-task':
+            return
+        if not self.target_window_info:
+            QMessageBox.information(self.group_box, '请先绑定窗口', '请先绑定要运行脚本的游戏窗口。')
+            return
+        hwnd = int(self.target_window_info['hwnd'])
+        if not win32gui.IsWindow(hwnd):
+            QMessageBox.warning(self.group_box, '窗口失效', '绑定的游戏窗口已经关闭，请重新绑定。')
+            return
+        try:
+            left, top, right, bottom = win32gui.GetWindowRect(hwnd)
+            image = self.window_handler.capture_window_image(hwnd, right - left, bottom - top)
+            client_left, client_top = win32gui.ClientToScreen(hwnd, (0, 0))
+            _, _, client_width, client_height = win32gui.GetClientRect(hwnd)
+            offset_x, offset_y = client_left - left, client_top - top
+            client_image = image[
+                offset_y:offset_y + client_height,
+                offset_x:offset_x + client_width,
+            ].copy()
+            preview = cv2.cvtColor(client_image, cv2.COLOR_RGB2BGR)
+            region = cv2.selectROI(
+                window_title,
+                preview,
+                showCrosshair=True,
+                fromCenter=False,
+            )
+            cv2.destroyWindow(window_title)
+        except Exception as error:
+            QMessageBox.warning(self.group_box, '框选失败', str(error))
+            self._log(f'[{label}框选失败] {error}')
+            return
+        if region == (0, 0, 0, 0):
+            return
+        config = self._read_config()
+        config[config_key] = [int(value) for value in region]
+        self.manager.save_config(manifest, config)
+        self.current_config = config
+        self._update_qqsg_data_controls(manifest, config)
+        self._log(f'[{label}区域] 已保存客户区相对区域：{config[config_key]}')
 
     def import_qqsg_game_data(self):
         manifest = self.current_manifest()
@@ -279,7 +551,16 @@ class ScriptPlatformFeature:
             existing = config.get('npc_routes', {})
             if not isinstance(existing, dict):
                 existing = {}
-            config['npc_routes'] = {**existing, **routes}
+            # Existing values include coordinates captured from the in-game
+            # navigation panel and therefore outrank legacy imported data.
+            config['npc_routes'] = {**routes, **existing}
+            existing_navigation = config.get('navigation_routes', {})
+            if not isinstance(existing_navigation, dict):
+                existing_navigation = {}
+            config['navigation_routes'] = {
+                **report.get('navigation_routes', {}),
+                **existing_navigation,
+            }
             config['route_data_source'] = {
                 'game_directory': str(install_dir),
                 'map_count': report['maps'],
@@ -301,13 +582,17 @@ class ScriptPlatformFeature:
         self._log(f'[游戏数据] {summary} 来源：{install_dir}')
         QMessageBox.information(self.group_box, '游戏数据导入完成', summary)
 
-    def _rebuild_template_controls(self, manifest: PluginManifest):
+    def _rebuild_template_controls(self, manifest: PluginManifest, config: dict | None = None):
         while self.template_layout.count() > 2:
             item = self.template_layout.takeAt(1)
             widget = item.widget()
             if widget:
                 widget.deleteLater()
         templates = manifest.templates or []
+        if (manifest.id == 'com.searchcat.qqsg.official-task'
+                and (config or {}).get('accept_mode', 'enter_spam') != 'guided_click'):
+            self.template_panel.setVisible(False)
+            return
         self.template_panel.setVisible(bool(templates))
         if not templates:
             self.template_status.setText('识别模板：无需配置')
@@ -346,7 +631,7 @@ class ScriptPlatformFeature:
             QMessageBox.warning(self.group_box, '模板导入失败', str(error))
             return
         self._log(f"已导入{definition['name']}：{destination}")
-        self._rebuild_template_controls(manifest)
+        self._rebuild_template_controls(manifest, self.current_config)
 
     @staticmethod
     def _missing_templates(manifest: PluginManifest) -> list[str]:
@@ -434,6 +719,7 @@ class ScriptPlatformFeature:
                 QMessageBox.warning(dialog, '配置错误', str(error))
                 return
             self.current_config = value
+            self._rebuild_template_controls(manifest, value)
             self._update_qqsg_data_controls(manifest, value)
             self._log(f'配置已保存：{path}')
             dialog.accept()
@@ -451,6 +737,12 @@ class ScriptPlatformFeature:
             return
         try:
             config = self._read_config()
+            if (manifest.id == 'com.searchcat.qqsg.official-task'
+                    and config.get('terrain_test_enabled', False)
+                    and not config.get('terrain_test_pending', False)):
+                config['terrain_test_enabled'] = False
+                self.current_config = config
+                self._log('[地图测试] 已清除旧测试标志，本次启动进入官爵任务流程')
             self.manager.save_config(manifest, config)
         except (OSError, ValueError, json.JSONDecodeError) as error:
             QMessageBox.warning(self.group_box, '配置错误', str(error))
@@ -496,11 +788,25 @@ class ScriptPlatformFeature:
         self.status_label.setText(f'状态：{names.get(state, state)}')
 
     def _on_finished(self, exit_code: int):
+        completed_test = bool(
+            exit_code == 0 and self.runner
+            and self.runner.manifest.id == 'com.searchcat.qqsg.official-task'
+            and self.runner.config.get('terrain_test_pending', False)
+        )
+        if completed_test:
+            manifest = self.runner.manifest
+            config = self.manager.load_config(manifest)
+            config['terrain_test_enabled'] = False
+            config['terrain_test_pending'] = False
+            self.manager.save_config(manifest, config)
+            self.current_config = config
         self.running = False
         self.start_btn.setText('启动  Home')
         self.plugin_list.setEnabled(True)
         self._update_start_enabled()
         self._log(f'插件进程已结束，退出码 {exit_code}')
+        if completed_test:
+            self._log('[地图测试] 本次测试已完成并自动退出测试模式；下次启动将执行官爵任务')
         self.runner = None
 
     def _log(self, message: str):
