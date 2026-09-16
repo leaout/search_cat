@@ -69,6 +69,20 @@
       "maximum": 3,
       "default": 0.7
     },
+    "native_navigation_start_scan_limit": {
+      "type": "integer",
+      "title": "点击后坐标不变多少次判定寻路未启动",
+      "minimum": 2,
+      "maximum": 15,
+      "default": 4
+    },
+    "native_navigation_click_retries": {
+      "type": "integer",
+      "title": "自动寻路未启动时重新点击 NPC 次数",
+      "minimum": 0,
+      "maximum": 5,
+      "default": 2
+    },
     "npc_routes": {
       "type": "object",
       "title": "NPC 位置：名称 -> [地图ID, X, Y]",
@@ -147,7 +161,49 @@
       "title": "接近 NPC 时的点动秒数",
       "minimum": 0.03,
       "maximum": 0.3,
-      "default": 0.08
+      "default": 0.18
+    },
+    "near_npc_precision_radius": {
+      "type": "number",
+      "title": "进入该距离后改用 NPC 附近点动",
+      "minimum": 1.5,
+      "maximum": 5,
+      "default": 2.0
+    },
+    "terrain_seconds_per_coordinate": {
+      "type": "number",
+      "title": "地形寻路每格移动秒数",
+      "minimum": 0.05,
+      "maximum": 2,
+      "default": 0.28
+    },
+    "terrain_minimum_move_pulse": {
+      "type": "number",
+      "title": "地形寻路最短单次行走秒数",
+      "minimum": 0.05,
+      "maximum": 1,
+      "default": 0.30
+    },
+    "terrain_maximum_move_pulse": {
+      "type": "number",
+      "title": "地形寻路最长单次行走秒数",
+      "minimum": 0.2,
+      "maximum": 3,
+      "default": 0.80
+    },
+    "terrain_position_scan_interval": {
+      "type": "number",
+      "title": "地形行走后坐标检测间隔秒数",
+      "minimum": 0.2,
+      "maximum": 3,
+      "default": 0.65
+    },
+    "terrain_unchanged_scan_limit": {
+      "type": "integer",
+      "title": "地形寻路坐标连续不变的脱困判定次数",
+      "minimum": 3,
+      "maximum": 20,
+      "default": 6
     },
     "seconds_per_coordinate": {
       "type": "number",
@@ -259,12 +315,19 @@
       "maximum": 10,
       "default": 1.5
     },
-    "maximum_cycles": {
+    "runtime_retry_interval": {
+      "type": "number",
+      "title": "运行异常后重试等待秒数",
+      "minimum": 0.2,
+      "maximum": 10,
+      "default": 2.0
+    },
+    "task_acquire_retry_scans": {
       "type": "integer",
-      "title": "最大任务处理轮数",
-      "minimum": 1,
+      "title": "未发现任务栏多少次后重新接取任务",
+      "minimum": 2,
       "maximum": 30,
-      "default": 10
+      "default": 5
     },
     "unchanged_retries": {
       "type": "integer",

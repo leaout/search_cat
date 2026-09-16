@@ -1,7 +1,9 @@
 import importlib.util
 import unittest
+from contextlib import nullcontext
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 
 
 PLUGIN_PATH = (
@@ -68,6 +70,48 @@ def ocr_line(text, confidence=0.95):
 
 
 class OfficialTaskNavigationTests(unittest.TestCase):
+    def test_runtime_step_retries_until_success(self):
+        attempts = []
+        logs = []
+        context = SimpleNamespace(
+            config={'runtime_retry_interval': 0},
+            step=lambda _name: nullcontext(),
+            log=lambda message, level='info': logs.append((level, message)),
+            sleep=lambda _seconds: None,
+            dry_run=False,
+        )
+
+        def operation():
+            attempts.append(len(attempts) + 1)
+            if len(attempts) < 3:
+                raise RuntimeError('暂时失败')
+            return 'completed'
+
+        result = PLUGIN._run_step_until_success(context, '寻路', operation)
+
+        self.assertEqual(result, 'completed')
+        self.assertEqual(attempts, [1, 2, 3])
+        self.assertEqual(sum(level == 'warning' for level, _message in logs), 2)
+
+    def test_map_name_accepts_adjacent_ocr_transposition(self):
+        expected = '\u6210\u90fd.\u5b50\u57ce'
+        self.assertTrue(PLUGIN._map_names_equivalent('\u57ce\u90fd.\u5b50\u57ce', expected))
+        self.assertTrue(PLUGIN._map_names_equivalent('\u6210\u90fd\uff0c\u5b50\u57ce', expected))
+        self.assertFalse(PLUGIN._map_names_equivalent('\u5efa\u4e1a.\u5b50\u57ce', expected))
+
+    def test_session_map_is_confirmed_once_and_later_ocr_is_ignored(self):
+        context = FakeContext([])
+        expected = '\u6210\u90fd.\u5b50\u57ce'
+
+        self.assertTrue(PLUGIN._confirm_session_map(context, expected, expected))
+        self.assertEqual(context._qqsg_confirmed_map, expected)
+        self.assertTrue(PLUGIN._confirm_session_map(
+            context, '\u5b8c\u5168\u9519\u8bef', expected,
+        ))
+        self.assertFalse(PLUGIN._confirm_session_map(
+            context, expected, '\u5efa\u4e1a.\u5b50\u57ce',
+        ))
+
     def test_minimap_integer_position_uses_cell_center_for_planning(self):
         self.assertEqual(PLUGIN._minimap_cell_center((11, 7), 100), [1150.0, 750.0])
 
@@ -157,6 +201,30 @@ class OfficialTaskNavigationTests(unittest.TestCase):
         self.assertEqual(result['point'], [183, 110])
         self.assertGreater(result['point'][0], 150)
 
+    def test_task_click_retries_when_character_never_starts_moving(self):
+        context = FakeContext([
+            [ocr_line('成都·子城 (10, 16)')]
+            for _ in range(20)
+        ])
+        context.config.update({
+            'native_navigation_start_scan_limit': 2,
+            'native_navigation_click_retries': 2,
+            'native_navigation_max_scans': 20,
+            'native_navigation_start_wait': 0,
+            'native_navigation_scan_interval': 0,
+        })
+
+        with self.assertRaisesRegex(RuntimeError, '重试点击任务栏 NPC 3 次'):
+            PLUGIN._navigate_by_task_click(
+                context, '向宠', [1, 15, 16], [800, 180],
+            )
+
+        clicks = [event for event in context.logs if event[0] == 'click']
+        self.assertEqual(len(clicks), 3)
+        self.assertTrue(any('未触发自动寻路' in message
+                            for level, message in context.logs
+                            if level == 'warning'))
+
     def test_minimap_recovers_digits_using_enhanced_same_frame(self):
         context = FakeContext([[ocr_line('成都，子城')],
                                [ocr_line('成都，子城')], [ocr_line('(11,9)')]])
@@ -229,6 +297,11 @@ class OfficialTaskNavigationTests(unittest.TestCase):
         self.assertTrue(PLUGIN._walk_endpoint_reached((26, 6), [26.3, 5.9]))
         self.assertFalse(PLUGIN._walk_endpoint_reached((26, 8), [26.3, 5.9]))
 
+    def test_transfer_endpoint_accepts_fractional_coordinate_rounding(self):
+        self.assertTrue(PLUGIN._walk_endpoint_reached(
+            (11, 9), [10.9, 9.4], horizontal_tolerance=1,
+        ))
+
     def test_final_npc_arrival_accepts_one_cell_in_both_axes(self):
         self.assertTrue(PLUGIN._walk_endpoint_reached(
             (14, 6), [15.0, 5.9], horizontal_tolerance=1,
@@ -236,6 +309,32 @@ class OfficialTaskNavigationTests(unittest.TestCase):
         self.assertFalse(PLUGIN._walk_endpoint_reached(
             (13, 6), [15.0, 5.9], horizontal_tolerance=1,
         ))
+
+    def test_npc_radius_finishes_route_even_before_last_planner_step(self):
+        context = FakeContext([
+            [ocr_line('成都·子城 (8, 16)')],
+            [ocr_line('成都·子城 (8, 16)')],
+        ])
+        plan = {
+            'map': '成都.子城',
+            'scale': 100,
+            'target': [7.4, 16.2],
+            'steps': [],
+            'terrain_records': [[1, 2, 0, 0, 1620, 2000, 1620, 0]],
+        }
+        planned = {
+            'steps': [
+                {'action': 'walk', 'segment': 1, 'from': [8.5, 16.2], 'to': [7.4, 16.2]},
+                {'action': 'jump', 'segment': 2, 'from': [7.4, 16.2], 'to': [7.4, 15.2]},
+            ],
+        }
+
+        with patch.object(PLUGIN, 'plan_route', return_value=planned):
+            PLUGIN._execute_terrain_route(context, plan, '前往 NPC 奋威中郎将')
+
+        self.assertEqual(context.key_events, [])
+        self.assertTrue(any('结束整条寻路' in message
+                            for _level, message in context.logs))
 
     def test_minimap_ocr_extracts_map_and_position(self):
         context = FakeContext([[ocr_line('成都·子城 (11, 7)')]])

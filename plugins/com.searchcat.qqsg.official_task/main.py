@@ -327,9 +327,6 @@ def _find_target(text, lines, routes, context=None):
 
 def _navigate_by_task_click(context, npc_name, route, point):
     """Use QQSG's task tracker link and monitor its built-in navigation."""
-    context.log(f'点击任务栏 NPC“{npc_name or "未识别"}” {point}，启动游戏自动寻路')
-    _click(context, *point)
-    _wait(context, context.config.get('task_click_confirm_wait', 0.12))
     configured_park = context.config.get('task_cursor_park_point')
     if isinstance(configured_park, list) and len(configured_park) == 2:
         park_point = _point(context.config, 'task_cursor_park_point')
@@ -339,15 +336,30 @@ def _navigate_by_task_click(context, npc_name, route, point):
             round(max(1, int(window.get('width', 800))) * 0.35),
             round(max(1, int(window.get('height', 600))) * 0.55),
         )
-    context.mouse.move(*park_point, duration=0.08, coordinate_space='client')
-    context.log(f'鼠标已移出任务栏并停放到客户区 {park_point}，避免悬停影响下次 OCR')
-    _wait(context, context.config.get('native_navigation_start_wait', 0.8))
+
+    def trigger_navigation(attempt):
+        context.windows.activate()
+        context.log(
+            f'点击任务栏 NPC“{npc_name or "未识别"}” {point}，'
+            f'启动游戏自动寻路（第 {attempt} 次）'
+        )
+        _click(context, *point)
+        _wait(context, context.config.get('task_click_confirm_wait', 0.12))
+        context.mouse.move(*park_point, duration=0.08, coordinate_space='client')
+        context.log(f'鼠标已移出任务栏并停放到客户区 {park_point}，避免悬停影响下次 OCR')
+        _wait(context, context.config.get('native_navigation_start_wait', 0.8))
+
+    trigger_navigation(1)
     target = None
     if isinstance(route, (list, tuple)) and len(route) >= 3:
         target = (int(route[-2]), int(route[-1]))
     previous = None
     moved = False
     stable = 0
+    unchanged_after_click = 0
+    click_attempt = 1
+    start_scan_limit = max(2, int(context.config.get('native_navigation_start_scan_limit', 4)))
+    click_retry_limit = max(0, int(context.config.get('native_navigation_click_retries', 2)))
     maximum_scans = int(context.config.get('native_navigation_max_scans', 45))
     for scan in range(1, maximum_scans + 1):
         state = _scan_minimap(context)
@@ -361,8 +373,11 @@ def _navigate_by_task_click(context, npc_name, route, point):
         if previous is not None and position != previous:
             moved = True
             stable = 0
+            unchanged_after_click = 0
         elif moved and position == previous:
             stable += 1
+        elif previous is not None:
+            unchanged_after_click += 1
         previous = position
         context.log(
             f'游戏自动寻路监控 {scan}/{maximum_scans}：当前位置 {position}'
@@ -371,6 +386,22 @@ def _navigate_by_task_click(context, npc_name, route, point):
         if moved and stable >= 3:
             context.log(f'游戏自动寻路坐标已稳定在 {position}，准备尝试 NPC 对话')
             return
+        if not moved and unchanged_after_click >= start_scan_limit:
+            if click_attempt <= click_retry_limit:
+                context.log(
+                    f'点击后人物连续 {unchanged_after_click} 次坐标不变，'
+                    '判定本次未触发自动寻路，重新激活窗口并点击 NPC',
+                    'warning',
+                )
+                click_attempt += 1
+                unchanged_after_click = 0
+                previous = None
+                trigger_navigation(click_attempt)
+                continue
+            raise RuntimeError(
+                f'重试点击任务栏 NPC {click_attempt} 次后人物仍未移动；'
+                '请检查任务栏是否被遮挡、NPC 名称点击坐标是否准确'
+            )
         _wait(context, context.config.get('native_navigation_scan_interval', 0.7))
     raise RuntimeError(f'点击任务栏 NPC 后，游戏自动寻路在 {maximum_scans} 次检测内未结束')
 
@@ -439,6 +470,38 @@ def _scan_minimap(context):
 
 def _normalize_map_name(value):
     return re.sub(r'[^0-9A-Za-z\u4e00-\u9fff]', '', str(value)).lower()
+
+
+def _map_names_equivalent(actual, expected):
+    """Tolerate punctuation, one adjacent OCR transposition, or a minor glyph error."""
+    actual = _normalize_map_name(actual)
+    expected = _normalize_map_name(expected)
+    if not actual or not expected:
+        return False
+    if actual == expected:
+        return True
+    if len(actual) == len(expected):
+        differences = [index for index, pair in enumerate(zip(actual, expected)) if pair[0] != pair[1]]
+        if (len(differences) == 2
+                and differences[1] == differences[0] + 1
+                and actual[differences[0]] == expected[differences[1]]
+                and actual[differences[1]] == expected[differences[0]]):
+            return True
+    # Four-character map names commonly lose one glyph to the minimap texture
+    # (for example 成都子城 -> 城都子城). One differing glyph is tolerated;
+    # genuinely different maps are still confirmed over repeated scans.
+    return SequenceMatcher(None, actual, expected).ratio() >= 0.75
+
+
+def _confirm_session_map(context, observed, expected):
+    """Confirm the map once per plugin run; later OCR map text is ignored."""
+    confirmed = getattr(context, '_qqsg_confirmed_map', '')
+    if confirmed:
+        return _map_names_equivalent(confirmed, expected)
+    if not _map_names_equivalent(observed, expected):
+        return False
+    context._qqsg_confirmed_map = str(expected)
+    return True
 
 
 def _terrain_model_for_map(config, map_name):
@@ -670,13 +733,36 @@ def _execute_terrain_route(context, plan, purpose, replan_count=0):
     mode = context.config.get('input_mode', 'foreground')
 
     def read_position():
+        mismatched_maps = []
         for _ in range(3):
             state = _scan_minimap(context)
             if state:
-                if _normalize_map_name(state['map']) != _normalize_map_name(plan['map']):
-                    raise RuntimeError(f'地图未识别或与{purpose}地图不一致，停止执行')
+                previously_confirmed = bool(getattr(context, '_qqsg_confirmed_map', ''))
+                if not _confirm_session_map(context, state['map'], plan['map']):
+                    if previously_confirmed:
+                        raise RuntimeError(
+                            f'本次运行已确认地图“{context._qqsg_confirmed_map}”，'
+                            f'但当前路线要求“{plan["map"]}”；不能跨地图复用地形模型'
+                        )
+                    mismatched_maps.append(state['map'] or '<空>')
+                    context.log(
+                        f'首次地图确认暂不匹配：OCR“{state["map"] or "<空>"}”，'
+                        f'期望“{plan["map"]}”；将重新识别',
+                        'warning',
+                    )
+                    _wait(context, 0.2)
+                    continue
+                if not previously_confirmed:
+                    context.log(
+                        f'本次脚本地图已确认：{plan["map"]}；'
+                        '后续寻路只读取坐标，不再使用地图名称 OCR 结果'
+                    )
                 return state['position']
             _wait(context, 0.35)
+        if mismatched_maps:
+            raise RuntimeError(
+                f'连续识别到其他地图 {mismatched_maps}，与{purpose}所需地图“{plan["map"]}”不一致'
+            )
         raise RuntimeError('连续无法读取人物坐标，停止测试')
 
     position = read_position()
@@ -724,8 +810,11 @@ def _execute_terrain_route(context, plan, purpose, replan_count=0):
         target_cell = _terrain_cell(step['to'])
         previous, unchanged = None, 0
         obstacle_recoveries = 0
+        stuck_recoveries = 0
         transfer_executed = False
-        for attempt in range(20):
+        attempt = 0
+        while True:
+            attempt += 1
             position = read_position()
             dx, dy = target_cell[0] - position[0], target_cell[1] - position[1]
             context.log(f'地形反馈：当前位置 {position}，规划 {step["to"]}，目标整数格 {target_cell}，'
@@ -741,15 +830,25 @@ def _execute_terrain_route(context, plan, purpose, replan_count=0):
                 (float(position[0]), float(position[1])),
                 (float(target[0]), float(target[1])),
             )
-            npc_neighborhood_reached = is_final_step and npc_distance <= arrival_radius
-            transfer_reached = action != 'walk' and transfer_executed and dx == 0 and dy == 0
-            if walk_reached or transfer_reached or npc_neighborhood_reached:
-                if npc_neighborhood_reached and (dx != 0 or dy != 0):
-                    context.log(
-                        f'已进入 NPC 目标邻域：当前位置 {position}，NPC 原始坐标 {target}，'
-                        f'距离 {npc_distance:.2f} ≤ {arrival_radius:.2f}'
-                    )
-                elif walk_reached and dy != 0:
+            # The planner can emit a trailing transfer even when an earlier
+            # walk endpoint already lies inside the NPC interaction radius.
+            # Arrival is about the final NPC coordinate, not the step index.
+            npc_neighborhood_reached = npc_distance <= arrival_radius
+            transfer_reached = (
+                action != 'walk'
+                and transfer_executed
+                and _walk_endpoint_reached(
+                    position, step['to'], horizontal_tolerance=1,
+                )
+            )
+            if npc_neighborhood_reached:
+                context.log(
+                    f'已进入 NPC 目标邻域：当前位置 {position}，NPC 原始坐标 {target}，'
+                    f'距离 {npc_distance:.2f} ≤ {arrival_radius:.2f}；结束整条寻路'
+                )
+                return
+            if walk_reached or transfer_reached:
+                if walk_reached and dy != 0:
                     context.log(
                         f'已进入行走路线端点邻域：实测 {position}，规划 {step["to"]}；'
                         'Y 差异来自斜坡/拱形轨迹或整数显示'
@@ -759,7 +858,11 @@ def _execute_terrain_route(context, plan, purpose, replan_count=0):
                 break
             unchanged = unchanged + 1 if position == previous else 0
             previous = position
-            if unchanged >= 3:
+            unchanged_limit = max(
+                3,
+                int(context.config.get('terrain_unchanged_scan_limit', 6)),
+            )
+            if unchanged >= unchanged_limit:
                 is_slope_walk = (
                     action == 'walk'
                     and abs(float(step['to'][1]) - float(step['from'][1])) > 1e-6
@@ -789,10 +892,42 @@ def _execute_terrain_route(context, plan, purpose, replan_count=0):
                     unchanged = 0
                     previous = None
                     continue
-                raise RuntimeError(
-                    f'步骤 {index} 在 {position} 连续无位移，规划边 '
-                    f'{step["from"]} → {step["to"]} 无法执行；该处地形连接可能解析错误'
+                stuck_recoveries += 1
+                recovery_key = _jump_direction(
+                    step,
+                    steps[index] if index < len(steps) else None,
+                    target,
+                    position,
+                    previous_direction,
                 )
+                if stuck_recoveries % 2 == 1 or not recovery_key:
+                    context.log(
+                        f'步骤 {index} 在 {position} 连续无可见位移，'
+                        f'执行第 {stuck_recoveries} 次脱困：原地跳；'
+                        '脱困不会终止脚本',
+                        'warning',
+                    )
+                    context.keyboard.press('space', mode=mode)
+                else:
+                    context.log(
+                        f'步骤 {index} 在 {position} 连续无可见位移，'
+                        f'执行第 {stuck_recoveries} 次脱困：'
+                        f'{recovery_key} + 空格；脱困不会终止脚本',
+                        'warning',
+                    )
+                    context.keyboard.directional_jump(
+                        recovery_key,
+                        lead_time=float(context.config.get('jump_direction_lead', 0.10)),
+                        jump_hold=float(context.config.get('jump_key_hold', 0.12)),
+                        follow_time=float(context.config.get('jump_direction_follow', 0.05)),
+                        mode=mode,
+                    )
+                    previous_direction = recovery_key
+                _wait(context, float(context.config.get('jump_landing_wait', 0.75)))
+                unchanged = 0
+                previous = None
+                obstacle_recoveries = 0
+                continue
             if action == 'jump':
                 next_step = steps[index] if index < len(steps) else None
                 jump_key = _jump_direction(
@@ -867,9 +1002,22 @@ def _execute_terrain_route(context, plan, purpose, replan_count=0):
                     key = 'right' if dx > 0 else 'left'
                 if dx == 0:
                     key = key if action == 'walk' else None
-            duration = min(0.5, max(0.12, abs(dy if action == 'climb' else dx) * 0.18))
-            if is_final_step and npc_distance <= 3:
-                duration = min(duration, float(context.config.get('near_npc_move_pulse', 0.08)))
+            move_distance = abs(dy if action == 'climb' else dx)
+            seconds_per_coordinate = float(
+                context.config.get('terrain_seconds_per_coordinate', 0.28)
+            )
+            minimum_pulse = float(context.config.get('terrain_minimum_move_pulse', 0.30))
+            maximum_pulse = float(context.config.get('terrain_maximum_move_pulse', 0.80))
+            duration = min(
+                maximum_pulse,
+                max(minimum_pulse, move_distance * seconds_per_coordinate),
+            )
+            precision_radius = float(context.config.get('near_npc_precision_radius', 2.0))
+            if npc_distance <= precision_radius:
+                duration = min(
+                    duration,
+                    float(context.config.get('near_npc_move_pulse', 0.18)),
+                )
             context.log(f'执行 {key} {duration:.2f}s')
             if key:
                 if key in ('left', 'right'):
@@ -880,9 +1028,8 @@ def _execute_terrain_route(context, plan, purpose, replan_count=0):
             finally:
                 if key:
                     context.keyboard.key_up(key, mode=mode)
-            _wait(context, 0.7 if action in ('jump', 'drop') else 0.35)
-        else:
-            raise RuntimeError(f'步骤 {index} 超过 20 次尝试，停止测试')
+            scan_interval = float(context.config.get('terrain_position_scan_interval', 0.65))
+            _wait(context, 0.7 if action in ('jump', 'drop') else scan_interval)
     context.log('模拟路线检查结束，未发送输入' if context.dry_run else f'{purpose}完成')
 
 
@@ -901,6 +1048,23 @@ def _run_terrain_test(context):
     _execute_terrain_route(context, plan, '地图测试')
 
 
+def _run_step_until_success(context, name, operation):
+    """Retry a recoverable runtime stage until it succeeds or the user stops the worker."""
+    attempt = 0
+    while True:
+        attempt += 1
+        try:
+            with context.step(name if attempt == 1 else f'{name}（重试 {attempt}）'):
+                return operation()
+        except RuntimeError as error:
+            context.log(
+                f'{name}本次未完成：{error}；脚本不停止，'
+                '将从当前实时状态重试',
+                'warning',
+            )
+            _wait(context, context.config.get('runtime_retry_interval', 2.0))
+
+
 def on_start(context):
     if context.config.get('terrain_test_enabled', False):
         if not context.windows.is_alive():
@@ -911,9 +1075,6 @@ def on_start(context):
         raise RuntimeError('尚未校准官爵任务坐标。请先在模拟模式调整坐标，再将 calibrated 改为 true。')
     if not context.config.get('calibrated', False):
         context.log('当前未标记为已校准，仅允许模拟运行。', 'warning')
-    if not context.windows.is_alive():
-        raise RuntimeError('绑定的游戏窗口已经失效')
-
     context.log(
         f'开始官爵任务：OCR 状态循环，输入方式 '
         f"{context.config.get('input_mode', 'foreground')}，模拟运行 {context.dry_run}"
@@ -932,13 +1093,20 @@ def on_start(context):
             f'没有“{issuer_name}”的位置或定制路线，请先导入游戏数据或配置 navigation_routes'
         )
 
-    with context.step(f'前往{issuer_name}'):
-        _navigate_to_target(context, issuer_name, issuer_route, None)
+    def navigate_to_issuer():
+        if not context.windows.is_alive():
+            raise RuntimeError('绑定的游戏窗口当前不可用')
+        return _navigate_to_target(context, issuer_name, issuer_route, None)
 
-    with context.step(f'向{issuer_name}领取任务'):
+    def accept_task():
+        if not context.windows.is_alive():
+            raise RuntimeError('绑定的游戏窗口当前不可用')
         _talk_to_nearest_npc(context)
         _accept_official_task(context)
         _restore_game_control(context)
+
+    _run_step_until_success(context, f'前往{issuer_name}', navigate_to_issuer)
+    _run_step_until_success(context, f'向{issuer_name}领取任务', accept_task)
 
     if context.dry_run:
         context.log('模拟运行已完成：已验证前往任务发布 NPC 和接取任务的操作序列。')
@@ -954,54 +1122,75 @@ def on_start(context):
     empty_scans = 0
     completed_steps = 0
     seen_task = False
-    maximum_cycles = int(context.config.get('maximum_cycles', 10))
-    for cycle in range(1, maximum_cycles + 1):
-        with context.step(f'识别并处理当前任务 {cycle}/{maximum_cycles}'):
-            text, lines = _scan_task(context)
-            signature = _task_signature(text)
-            task_keyword = str(context.config.get('task_keyword', '官爵'))
-            if not signature or not _has_official_task(text, task_keyword):
-                empty_scans += 1
-                context.log(f'未发现官爵任务（连续 {empty_scans} 次）', 'warning')
-                if empty_scans >= int(context.config.get('completion_confirm_scans', 2)):
-                    if seen_task:
+    cycle = 0
+    while True:
+        cycle += 1
+        try:
+            with context.step(f'识别并处理当前任务 {cycle}'):
+                text, lines = _scan_task(context)
+                signature = _task_signature(text)
+                task_keyword = str(context.config.get('task_keyword', '官爵'))
+                if not signature or not _has_official_task(text, task_keyword):
+                    empty_scans += 1
+                    context.log(f'未发现官爵任务（连续 {empty_scans} 次）', 'warning')
+                    completion_scans = int(context.config.get('completion_confirm_scans', 2))
+                    if seen_task and empty_scans >= completion_scans:
                         break
-                    raise RuntimeError('始终没有识别到官爵任务，请检查 task_region 和 OCR 日志')
+                    acquire_retry_scans = int(context.config.get('task_acquire_retry_scans', 5))
+                    if not seen_task and empty_scans >= acquire_retry_scans:
+                        context.log(
+                            '接任务后始终未识别到任务栏，重新执行 NPC 对话和接取操作',
+                            'warning',
+                        )
+                        _run_step_until_success(
+                            context, f'向{issuer_name}重新领取任务', accept_task,
+                        )
+                        empty_scans = 0
+                    _wait(context, context.config.get('monitor_interval', 1.5))
+                    continue
+                empty_scans = 0
+                seen_task = True
+                if signature == previous_signature:
+                    unchanged += 1
+                else:
+                    if previous_signature:
+                        completed_steps += 1
+                    unchanged = 0
+                    previous_signature = signature
+                if unchanged > int(context.config.get('unchanged_retries', 3)):
+                    context.log(
+                        f'任务栏内容已连续 {unchanged} 次未变，'
+                        '继续重试当前 NPC，不停止脚本',
+                        'warning',
+                    )
+                npc_name, route, fallback_point = _find_target(
+                    text, lines, target_catalog, context=context,
+                )
+                context.log(f'当前目标 NPC：{npc_name or "未识别"}；任务签名：{signature}')
+                if fallback_point and context.config.get('prefer_task_click_navigation', True):
+                    _navigate_by_task_click(context, npc_name, route, fallback_point)
+                else:
+                    _navigate_to_target(context, npc_name, route, fallback_point)
+                context.keyboard.press('~', mode=context.config.get('input_mode', 'foreground'))
+                _talk_to_nearest_npc(context)
+                _finish_npc_dialog(context)
+                context.storage.write_json('progress.json', {
+                    'status': 'monitoring',
+                    'completed_steps': completed_steps,
+                    'cycle': cycle,
+                    'npc': npc_name,
+                    'task_text': text,
+                })
+                context.debug.watch('completed_steps', completed_steps)
                 _wait(context, context.config.get('monitor_interval', 1.5))
-                continue
-            empty_scans = 0
-            seen_task = True
-            if signature == previous_signature:
-                unchanged += 1
-            else:
-                if previous_signature:
-                    completed_steps += 1
-                unchanged = 0
-                previous_signature = signature
-            if unchanged > int(context.config.get('unchanged_retries', 3)):
-                raise RuntimeError('任务栏内容连续多次没有变化，寻路或 NPC 对话可能失败')
-            npc_name, route, fallback_point = _find_target(
-                text, lines, target_catalog, context=context,
+        except RuntimeError as error:
+            context.log(
+                f'当前任务本轮执行失败：{error}；'
+                '将重新识别任务栏并继续执行',
+                'warning',
             )
-            context.log(f'当前目标 NPC：{npc_name or "未识别"}；任务签名：{signature}')
-            if fallback_point and context.config.get('prefer_task_click_navigation', True):
-                _navigate_by_task_click(context, npc_name, route, fallback_point)
-            else:
-                _navigate_to_target(context, npc_name, route, fallback_point)
-            context.keyboard.press('~', mode=context.config.get('input_mode', 'foreground'))
-            _talk_to_nearest_npc(context)
-            _finish_npc_dialog(context)
-            context.storage.write_json('progress.json', {
-                'status': 'monitoring',
-                'completed_steps': completed_steps,
-                'cycle': cycle,
-                'npc': npc_name,
-                'task_text': text,
-            })
-            context.debug.watch('completed_steps', completed_steps)
-            _wait(context, context.config.get('monitor_interval', 1.5))
-    else:
-        raise RuntimeError('达到最大识别轮数，仍未确认官爵任务完成')
+            _wait(context, context.config.get('runtime_retry_interval', 2.0))
+            continue
 
     context.storage.write_json('progress.json', {
         'status': 'completed',

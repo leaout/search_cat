@@ -4,8 +4,8 @@ from pathlib import Path
 
 import cv2
 import win32gui
-from PyQt5.QtCore import Qt
-from PyQt5.QtGui import QImage, QPixmap
+from PyQt5.QtCore import Qt, QTimer
+from PyQt5.QtGui import QImage, QPixmap, QTextCursor
 from PyQt5.QtWidgets import (QCheckBox, QDialog, QDialogButtonBox, QFileDialog, QGroupBox, QHBoxLayout,
                              QLabel, QListWidget, QListWidgetItem, QMessageBox,
                              QPushButton, QSplitter, QTextEdit, QVBoxLayout,
@@ -811,6 +811,21 @@ class ScriptPlatformFeature:
 
     def _log(self, message: str):
         self.log_display.append(str(message))
+        # QTextEdit.append() updates the document but does not reliably keep
+        # the viewport at the latest block, especially while many SDK events
+        # arrive in quick succession. Move both the cursor and scrollbar now,
+        # then repeat after Qt has recalculated the document layout.
+        self.log_display.moveCursor(QTextCursor.End)
+        self.log_display.ensureCursorVisible()
+        self._scroll_log_to_end()
+        QTimer.singleShot(0, self._scroll_log_to_end)
+
+    def _scroll_log_to_end(self):
+        if not hasattr(self, 'log_display'):
+            return
+        scrollbar = self.log_display.verticalScrollBar()
+        scrollbar.setValue(scrollbar.maximum())
+        self.log_display.viewport().update()
 
     def _on_event(self, event: str, data: dict):
         if event == 'watch':
