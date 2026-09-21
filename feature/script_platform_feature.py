@@ -15,6 +15,7 @@ from PyQt5.QtWidgets import (QCheckBox, QComboBox, QDialog, QDialogButtonBox, QF
 
 from core.winhandler import WindowHandler
 from core.text import repair_utf8_gbk_mojibake
+from core.window_titles import is_qqsg_game_window_title
 from plugin_platform.manager import PluginManager, PluginManifest
 from plugin_platform.qqsg_data import (QQSGPackage, find_installation, import_routes,
                                        parse_map_catalog)
@@ -153,8 +154,12 @@ class ScriptPlatformFeature:
 
         window_layout = QHBoxLayout()
         window_layout.setSpacing(6)
-        choose_window_btn = QPushButton('添加窗口')
-        choose_window_btn.setFixedWidth(82)
+        detect_windows_btn = QPushButton('识别全部')
+        detect_windows_btn.setFixedWidth(76)
+        detect_windows_btn.setToolTip('自动扫描并加入所有 QQ 三国客户端窗口')
+        detect_windows_btn.clicked.connect(self.auto_detect_game_windows)
+        choose_window_btn = QPushButton('手动添加')
+        choose_window_btn.setFixedWidth(76)
         choose_window_btn.clicked.connect(self.choose_window)
         remove_window_btn = QPushButton('移除')
         remove_window_btn.setFixedWidth(54)
@@ -162,6 +167,7 @@ class ScriptPlatformFeature:
         self.window_selector = QComboBox()
         self.window_selector.setPlaceholderText('尚未添加游戏窗口')
         self.window_selector.currentIndexChanged.connect(self._active_window_changed)
+        window_layout.addWidget(detect_windows_btn)
         window_layout.addWidget(choose_window_btn)
         window_layout.addWidget(self.window_selector, 1)
         window_layout.addWidget(remove_window_btn)
@@ -415,6 +421,8 @@ class ScriptPlatformFeature:
             self.current_config = {}
             self._rebuild_template_controls(manifest, {})
             self._log(f'[配置错误] {error}')
+        if manifest.id == 'com.searchcat.qqsg.official-task' and not self.running:
+            self.auto_detect_game_windows(silent=True)
         self._update_start_enabled()
 
     def _update_qqsg_data_controls(self, manifest: PluginManifest, config: dict):
@@ -686,6 +694,7 @@ class ScriptPlatformFeature:
             'top': int(window.top),
             'width': int(window.right - window.left),
             'height': int(window.bottom - window.top),
+            'source': 'manual',
         }
         existing_index = next(
             (index for index, item in enumerate(self.target_windows)
@@ -705,6 +714,97 @@ class ScriptPlatformFeature:
             self.target_windows[existing_index] = selected
             self._refresh_window_selector(selected['id'])
         self._update_start_enabled()
+
+    @staticmethod
+    def _candidate_window_info(candidate: dict, number: int) -> dict:
+        hwnd = int(candidate.get('hwnd', 0))
+        return {
+            'id': f'hwnd-{hwnd}',
+            'hwnd': hwnd,
+            'pid': int(candidate.get('pid', 0)),
+            'title': repair_utf8_gbk_mojibake(str(candidate.get('title', ''))),
+            'number': int(number),
+            'left': int(candidate.get('left', 0)),
+            'top': int(candidate.get('top', 0)),
+            'width': int(candidate.get('width', 0)),
+            'height': int(candidate.get('height', 0)),
+            'source': 'auto',
+        }
+
+    @staticmethod
+    def _is_live_window_info(info: dict) -> bool:
+        hwnd = int(info.get('hwnd', 0))
+        if not hwnd or not win32gui.IsWindow(hwnd):
+            return False
+        try:
+            _, live_pid = win32process.GetWindowThreadProcessId(hwnd)
+        except Exception:
+            return False
+        expected_pid = int(info.get('pid', 0))
+        return not expected_pid or int(live_pid) == expected_pid
+
+    def auto_detect_game_windows(self, _checked=False, silent=False):
+        """Replace bindings with every currently visible QQSG client window."""
+        if self.running:
+            if not silent:
+                QMessageBox.information(
+                    self.group_box, '脚本正在运行',
+                    '请先停止全部窗口，再重新扫描游戏窗口。',
+                )
+            return 0
+        candidates = [
+            item for item in self.window_handler.list_window_candidates()
+            if is_qqsg_game_window_title(item.get('title', ''))
+        ]
+        candidates.sort(key=lambda item: (item.get('top', 0), item.get('left', 0), item.get('pid', 0)))
+        auto_detected = [
+            self._candidate_window_info(candidate, index)
+            for index, candidate in enumerate(candidates, 1)
+        ]
+        detected_ids = {item['id'] for item in auto_detected}
+        manual_windows = [
+            dict(item)
+            for item in self.target_windows
+            if item.get('source') == 'manual'
+            and item.get('id') not in detected_ids
+            and self._is_live_window_info(item)
+        ]
+        detected = auto_detected + manual_windows
+        for index, info in enumerate(detected, 1):
+            info['number'] = index
+        previous_ids = {item['id'] for item in self.target_windows}
+        detected_ids = {item['id'] for item in detected}
+        selected_id = (
+            self.target_window_info.get('id')
+            if self.target_window_info and self.target_window_info.get('id') in detected_ids
+            else (detected[0]['id'] if detected else None)
+        )
+        self.target_windows = detected
+        for info in detected:
+            self.session_states.setdefault(info['id'], 'ready')
+            if self.session_states[info['id']] == 'invalid':
+                self.session_states[info['id']] = 'ready'
+            self.session_logs.setdefault(info['id'], [])
+        for stale_id in previous_ids - detected_ids:
+            self.session_states.pop(stale_id, None)
+            self.session_logs.pop(stale_id, None)
+            self.session_frames.pop(stale_id, None)
+        self.target_window_info = None
+        self._refresh_window_selector(selected_id)
+        self._update_start_enabled()
+        if detected:
+            manual_note = f'，保留 {len(manual_windows)} 个手动窗口' if manual_windows else ''
+            self._log(
+                f'[多窗口] 自动识别到 {len(auto_detected)} 个 QQ 三国客户端窗口'
+                f'{manual_note}；本次共绑定 {len(detected)} 个窗口'
+            )
+        elif not silent:
+            QMessageBox.information(
+                self.group_box, '未找到游戏窗口',
+                '没有找到标题以“QQ三国 + 版本数字”开头的可见客户端窗口。\n'
+                '如果游戏标题特殊，可使用“手动添加”。',
+            )
+        return len(detected)
 
     @staticmethod
     def _window_session_label(info: dict, state: str = '') -> str:
@@ -781,8 +881,12 @@ class ScriptPlatformFeature:
         self._update_start_enabled()
 
     def _update_start_enabled(self):
+        manifest = self.current_manifest()
+        can_auto_detect = bool(
+            manifest and manifest.id == 'com.searchcat.qqsg.official-task'
+        )
         self.start_btn.setEnabled(
-            bool(self.current_manifest() and self.target_windows) or self.running
+            bool(manifest and (self.target_windows or can_auto_detect)) or self.running
         )
 
     def _read_config(self) -> dict:
@@ -834,7 +938,15 @@ class ScriptPlatformFeature:
 
     def start(self):
         manifest = self.current_manifest()
-        if not manifest or not self.target_windows:
+        if not manifest:
+            return
+        if manifest.id == 'com.searchcat.qqsg.official-task' and not self.running:
+            self.auto_detect_game_windows(silent=True)
+        if not self.target_windows:
+            QMessageBox.information(
+                self.group_box, '未找到游戏窗口',
+                '请先启动 QQ 三国客户端，或使用“手动添加”。',
+            )
             return
         try:
             config = self._read_config()

@@ -109,6 +109,10 @@ class WindowHandler:
             candidate['number'] = title_counts[title]
         return candidates
 
+    def list_window_candidates(self) -> list:
+        """Return visible top-level windows with stable HWND/PID metadata."""
+        return self._list_window_candidates()
+
     @staticmethod
     def get_unicode_window_title(hwnd: int, fallback: str = '') -> str:
         """Read a title from Win32, including games that put UTF-8 in the ANSI API."""
