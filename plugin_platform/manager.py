@@ -114,6 +114,23 @@ class PluginManager:
             (directory / child).mkdir(parents=True, exist_ok=True)
         return directory
 
+    def plugin_session_data_directory(self, plugin_id: str, session_key: str) -> Path:
+        """Allocate isolated runtime data for one plugin/window session."""
+        plugin_directory = self.plugin_data_directory(plugin_id)
+        safe_key = ''.join(
+            character if character.isalnum() or character in '._-' else '_'
+            for character in str(session_key)
+        ).strip('._-')
+        if not safe_key:
+            raise ValueError('会话标识无效')
+        sessions_root = (plugin_directory / 'sessions').resolve()
+        directory = (sessions_root / safe_key).resolve()
+        if sessions_root not in directory.parents:
+            raise ValueError('插件会话数据目录无效')
+        for child in ('data', 'cache', 'logs', 'screenshots', 'runs', 'temp'):
+            (directory / child).mkdir(parents=True, exist_ok=True)
+        return directory
+
     def load_config(self, manifest: PluginManifest, profile: str = 'default') -> dict[str, Any]:
         config_path = self.plugin_data_directory(manifest.id) / 'profiles' / f'{profile}.json'
         if not config_path.exists():

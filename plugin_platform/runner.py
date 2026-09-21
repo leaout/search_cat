@@ -29,6 +29,7 @@ class PluginProcess(QObject):
         config: dict[str, Any],
         window_info: dict[str, Any],
         dry_run: bool = True,
+        session_key: str | None = None,
         parent: QObject | None = None,
     ):
         super().__init__(parent)
@@ -40,6 +41,12 @@ class PluginProcess(QObject):
             str(self.window_info.get('title', ''))
         )
         self.dry_run = dry_run
+        self.session_key = str(
+            session_key or self.window_info.get('id') or f"hwnd-{self.window_info.get('hwnd', 0)}"
+        )
+        self.data_directory = manager.plugin_session_data_directory(
+            manifest.id, self.session_key,
+        )
         self.process = QProcess(self)
         self.process.setProcessChannelMode(QProcess.SeparateChannels)
         self.process.readyReadStandardOutput.connect(self._read_stdout)
@@ -54,15 +61,16 @@ class PluginProcess(QObject):
         self.config_path.write_text(json.dumps(config, ensure_ascii=False, indent=2), encoding='utf-8')
         self.host = AutomationHost(
             manifest.directory,
-            manager.plugin_data_directory(manifest.id),
+            self.data_directory,
             manifest.permissions,
             dry_run=dry_run,
+            session_id=self.session_key,
         )
         self.host.register_window(self.window_info)
 
     def _create_run_directory(self) -> Path:
         stamp = time.strftime('%Y%m%d_%H%M%S')
-        directory = self.manager.plugin_data_directory(self.manifest.id) / 'runs' / f'{stamp}_{uuid.uuid4().hex[:6]}'
+        directory = self.data_directory / 'runs' / f'{stamp}_{uuid.uuid4().hex[:6]}'
         directory.mkdir(parents=True)
         return directory
 

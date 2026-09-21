@@ -1,12 +1,14 @@
 import json
 import shutil
+from copy import deepcopy
 from pathlib import Path
 
 import cv2
 import win32gui
+import win32process
 from PyQt5.QtCore import Qt, QTimer
 from PyQt5.QtGui import QImage, QPixmap, QTextCursor
-from PyQt5.QtWidgets import (QCheckBox, QDialog, QDialogButtonBox, QFileDialog, QGroupBox, QHBoxLayout,
+from PyQt5.QtWidgets import (QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFileDialog, QGroupBox, QHBoxLayout,
                              QLabel, QListWidget, QListWidgetItem, QMessageBox,
                              QPushButton, QSplitter, QTextEdit, QVBoxLayout,
                              QWidget)
@@ -28,7 +30,11 @@ class ScriptPlatformFeature:
         self.manifests: list[PluginManifest] = []
         self.window_handler = WindowHandler()
         self.target_window_info = None
-        self.runner: PluginProcess | None = None
+        self.target_windows: list[dict] = []
+        self.runners: dict[str, PluginProcess] = {}
+        self.session_states: dict[str, str] = {}
+        self.session_logs: dict[str, list[str]] = {}
+        self.session_frames: dict[str, object] = {}
         self.running = False
         self.current_config: dict = {}
 
@@ -147,13 +153,18 @@ class ScriptPlatformFeature:
 
         window_layout = QHBoxLayout()
         window_layout.setSpacing(6)
-        choose_window_btn = QPushButton('绑定窗口')
-        choose_window_btn.setFixedWidth(76)
+        choose_window_btn = QPushButton('添加窗口')
+        choose_window_btn.setFixedWidth(82)
         choose_window_btn.clicked.connect(self.choose_window)
-        self.window_label = QLabel('未绑定窗口')
-        self.window_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        remove_window_btn = QPushButton('移除')
+        remove_window_btn.setFixedWidth(54)
+        remove_window_btn.clicked.connect(self.remove_current_window)
+        self.window_selector = QComboBox()
+        self.window_selector.setPlaceholderText('尚未添加游戏窗口')
+        self.window_selector.currentIndexChanged.connect(self._active_window_changed)
         window_layout.addWidget(choose_window_btn)
-        window_layout.addWidget(self.window_label, 1)
+        window_layout.addWidget(self.window_selector, 1)
+        window_layout.addWidget(remove_window_btn)
         control_layout.addLayout(window_layout)
 
         action_layout = QHBoxLayout()
@@ -169,7 +180,7 @@ class ScriptPlatformFeature:
         action_layout.addWidget(config_btn)
         self.start_btn = QPushButton('启动  Home')
         self.start_btn.setObjectName('scriptPrimaryButton')
-        self.start_btn.setFixedWidth(116)
+        self.start_btn.setFixedWidth(132)
         self.start_btn.clicked.connect(self.toggle)
         self.start_btn.setEnabled(False)
         action_layout.addWidget(self.start_btn)
@@ -665,7 +676,7 @@ class ScriptPlatformFeature:
         window = self.window_handler.window
         info = self.window_handler.window_info or {}
         title = repair_utf8_gbk_mojibake(str(info.get('title') or window.title))
-        self.target_window_info = {
+        selected = {
             'id': f"hwnd-{int(getattr(window, '_hWnd', 0))}",
             'hwnd': int(getattr(window, '_hWnd', 0)),
             'pid': int(info.get('pid', 0)),
@@ -676,13 +687,103 @@ class ScriptPlatformFeature:
             'width': int(window.right - window.left),
             'height': int(window.bottom - window.top),
         }
-        self.window_label.setText(
-            f"{title} #{self.target_window_info['number']} · PID {self.target_window_info['pid']}"
+        existing_index = next(
+            (index for index, item in enumerate(self.target_windows)
+             if item['id'] == selected['id']),
+            None,
         )
+        if existing_index is None:
+            self.target_windows.append(selected)
+            self.session_states[selected['id']] = 'ready'
+            self.session_logs.setdefault(selected['id'], [])
+            self._refresh_window_selector(selected['id'])
+            self._log(
+                f"[多窗口] 已添加 {title} #{selected['number']} · PID {selected['pid']}",
+                selected['id'],
+            )
+        else:
+            self.target_windows[existing_index] = selected
+            self._refresh_window_selector(selected['id'])
+        self._update_start_enabled()
+
+    @staticmethod
+    def _window_session_label(info: dict, state: str = '') -> str:
+        suffix = f' · {state}' if state else ''
+        return (
+            f"{info.get('title', '未知窗口')} #{info.get('number', 1)} "
+            f"· PID {info.get('pid', 0)}{suffix}"
+        )
+
+    def _refresh_window_selector(self, selected_id: str | None = None):
+        if not hasattr(self, 'window_selector'):
+            return
+        selected_id = selected_id or (
+            self.target_window_info.get('id') if self.target_window_info else None
+        )
+        self.window_selector.blockSignals(True)
+        self.window_selector.clear()
+        selected_index = -1
+        for index, info in enumerate(self.target_windows):
+            session_id = info['id']
+            state = self.session_states.get(session_id, 'ready')
+            self.window_selector.addItem(
+                self._window_session_label(info, self._state_name(state)),
+                session_id,
+            )
+            if session_id == selected_id:
+                selected_index = index
+        self.window_selector.blockSignals(False)
+        if self.target_windows:
+            self.window_selector.setCurrentIndex(
+                selected_index if selected_index >= 0 else 0
+            )
+            self._active_window_changed(self.window_selector.currentIndex())
+        else:
+            self.target_window_info = None
+            self.log_display.clear()
+            self.preview_label.setPixmap(QPixmap())
+            self.preview_label.setText('脚本执行截图将在这里显示')
+
+    def _active_window_changed(self, index: int):
+        if index < 0 or index >= len(self.target_windows):
+            self.target_window_info = None
+            return
+        self.target_window_info = self.target_windows[index]
+        session_id = self.target_window_info['id']
+        self.log_display.setPlainText('\n'.join(self.session_logs.get(session_id, [])))
+        self._scroll_log_to_end()
+        frame = self.session_frames.get(session_id)
+        if frame is not None:
+            self._render_frame(frame)
+        else:
+            self.preview_label.setPixmap(QPixmap())
+            self.preview_label.setText('该窗口尚无脚本截图')
+        self._update_status_label()
+
+    def remove_current_window(self):
+        if not self.target_window_info:
+            return
+        session_id = self.target_window_info['id']
+        if session_id in self.runners:
+            QMessageBox.information(
+                self.group_box, '窗口正在运行',
+                '请先停止全部脚本，再移除该窗口。',
+            )
+            return
+        self.target_windows = [
+            item for item in self.target_windows if item['id'] != session_id
+        ]
+        self.session_states.pop(session_id, None)
+        self.session_logs.pop(session_id, None)
+        self.session_frames.pop(session_id, None)
+        self.target_window_info = None
+        self._refresh_window_selector()
         self._update_start_enabled()
 
     def _update_start_enabled(self):
-        self.start_btn.setEnabled(bool(self.current_manifest() and self.target_window_info) or self.running)
+        self.start_btn.setEnabled(
+            bool(self.current_manifest() and self.target_windows) or self.running
+        )
 
     def _read_config(self) -> dict:
         if not isinstance(self.current_config, dict):
@@ -733,7 +834,7 @@ class ScriptPlatformFeature:
 
     def start(self):
         manifest = self.current_manifest()
-        if not manifest or not self.target_window_info:
+        if not manifest or not self.target_windows:
             return
         try:
             config = self._read_config()
@@ -756,60 +857,115 @@ class ScriptPlatformFeature:
                     '请先导入以下模板：' + '、'.join(missing),
                 )
                 return
-        self.log_display.clear()
-        self.runner = PluginProcess(
-            self.manager,
-            manifest,
-            config,
-            self.target_window_info,
-            dry_run=self.dry_run_checkbox.isChecked(),
-            parent=self.group_box,
-        )
-        self.runner.log_received.connect(self._log)
-        self.runner.event_received.connect(self._on_event)
-        self.runner.frame_captured.connect(self._show_frame)
-        self.runner.state_changed.connect(self._set_state)
-        self.runner.finished.connect(self._on_finished)
-        self.runner.start()
-        self.running = True
-        self.start_btn.setText('停止  Home')
-        self.plugin_list.setEnabled(False)
+        valid_windows = []
+        for info in self.target_windows:
+            hwnd = int(info['hwnd'])
+            if not win32gui.IsWindow(hwnd):
+                self.session_states[info['id']] = 'invalid'
+                self._log('[多窗口] 目标窗口已关闭，本次跳过', info['id'])
+                continue
+            _, live_pid = win32process.GetWindowThreadProcessId(hwnd)
+            if info.get('pid') and int(live_pid) != int(info['pid']):
+                self.session_states[info['id']] = 'invalid'
+                self._log('[多窗口] HWND 已被其他进程复用，本次跳过', info['id'])
+                continue
+            valid_windows.append(info)
+        if not valid_windows:
+            QMessageBox.warning(self.group_box, '无可用窗口', '所有绑定窗口均已失效，请重新添加。')
+            self._refresh_window_selector()
+            return
+
+        for info in valid_windows:
+            session_id = info['id']
+            if session_id in self.runners:
+                continue
+            self.session_logs[session_id] = []
+            if self.target_window_info and self.target_window_info['id'] == session_id:
+                self.log_display.clear()
+            runner = PluginProcess(
+                self.manager,
+                manifest,
+                deepcopy(config),
+                info,
+                dry_run=self.dry_run_checkbox.isChecked(),
+                session_key=session_id,
+                parent=self.group_box,
+            )
+            runner.log_received.connect(
+                lambda message, sid=session_id: self._log(message, sid)
+            )
+            runner.event_received.connect(
+                lambda event, data, sid=session_id: self._on_event(sid, event, data)
+            )
+            runner.frame_captured.connect(
+                lambda image, sid=session_id: self._show_frame(sid, image)
+            )
+            runner.state_changed.connect(
+                lambda state, sid=session_id: self._set_state(sid, state)
+            )
+            runner.finished.connect(
+                lambda code, sid=session_id, instance=runner:
+                self._on_finished(sid, instance, code)
+            )
+            self.runners[session_id] = runner
+            self.session_states[session_id] = 'starting'
+            runner.start()
+        self._sync_running_ui()
 
     def stop(self):
-        if self.runner:
-            self.runner.stop()
-        self.status_label.setText('状态：正在停止')
+        for session_id, runner in list(self.runners.items()):
+            self.session_states[session_id] = 'stopping'
+            runner.stop()
+        self._sync_running_ui()
 
-    def _set_state(self, state: str):
+    @staticmethod
+    def _state_name(state: str) -> str:
         names = {
             'starting': '正在启动', 'running': '运行中', 'completed': '已完成',
             'failed': '失败', 'stopping': '正在停止', 'stopped': '已停止',
+            'ready': '待机', 'invalid': '窗口失效',
         }
-        self.status_label.setText(f'状态：{names.get(state, state)}')
+        return names.get(state, state)
 
-    def _on_finished(self, exit_code: int):
+    def _set_state(self, session_id: str, state: str):
+        self.session_states[session_id] = state
+        self._refresh_window_selector(session_id if self.target_window_info and
+                                      self.target_window_info['id'] == session_id else None)
+        self._sync_running_ui()
+
+    def _on_finished(self, session_id: str, runner: PluginProcess, exit_code: int):
+        if self.runners.get(session_id) is not runner:
+            return
         completed_test = bool(
-            exit_code == 0 and self.runner
-            and self.runner.manifest.id == 'com.searchcat.qqsg.official-task'
-            and self.runner.config.get('terrain_test_pending', False)
+            exit_code == 0
+            and runner.manifest.id == 'com.searchcat.qqsg.official-task'
+            and runner.config.get('terrain_test_pending', False)
         )
         if completed_test:
-            manifest = self.runner.manifest
+            manifest = runner.manifest
             config = self.manager.load_config(manifest)
             config['terrain_test_enabled'] = False
             config['terrain_test_pending'] = False
             self.manager.save_config(manifest, config)
             self.current_config = config
-        self.running = False
-        self.start_btn.setText('启动  Home')
-        self.plugin_list.setEnabled(True)
-        self._update_start_enabled()
-        self._log(f'插件进程已结束，退出码 {exit_code}')
+        self.runners.pop(session_id, None)
+        self.session_states[session_id] = 'completed' if exit_code == 0 else 'failed'
+        self._log(f'插件进程已结束，退出码 {exit_code}', session_id)
         if completed_test:
-            self._log('[地图测试] 本次测试已完成并自动退出测试模式；下次启动将执行官爵任务')
-        self.runner = None
+            self._log('[地图测试] 本次测试已完成并自动退出测试模式；下次启动将执行官爵任务', session_id)
+        active_id = self.target_window_info.get('id') if self.target_window_info else None
+        self._refresh_window_selector(active_id)
+        self._sync_running_ui()
 
-    def _log(self, message: str):
+    def _log(self, message: str, session_id: str | None = None):
+        if session_id:
+            logs = self.session_logs.setdefault(session_id, [])
+            logs.append(str(message))
+            if len(logs) > 500:
+                del logs[:-500]
+            active_id = self.target_window_info.get('id') if self.target_window_info else None
+            if active_id != session_id:
+                return
         self.log_display.append(str(message))
         # QTextEdit.append() updates the document but does not reliably keep
         # the viewport at the latest block, especially while many SDK events
@@ -827,20 +983,44 @@ class ScriptPlatformFeature:
         scrollbar.setValue(scrollbar.maximum())
         self.log_display.viewport().update()
 
-    def _on_event(self, event: str, data: dict):
+    def _on_event(self, session_id: str, event: str, data: dict):
         if event == 'watch':
-            self._log(f"[变量] {data.get('name')} = {data.get('value')}")
+            self._log(f"[变量] {data.get('name')} = {data.get('value')}", session_id)
         elif event == 'rpc_completed':
             error = f"，错误：{data['error']}" if data.get('error') else ''
             self._log(
-                f"[SDK] {data.get('method')} · {data.get('duration_ms')} ms{error}"
+                f"[SDK] {data.get('method')} · {data.get('duration_ms')} ms{error}",
+                session_id,
             )
 
-    def _show_frame(self, image):
+    def _show_frame(self, session_id: str, image):
         height, width, channels = image.shape
         qt_image = QImage(
             image.data, width, height, channels * width, QImage.Format_RGB888,
         ).copy()
+        self.session_frames[session_id] = qt_image
+        active_id = self.target_window_info.get('id') if self.target_window_info else None
+        if active_id != session_id:
+            return
+        self._render_frame(qt_image)
+
+    def _render_frame(self, qt_image: QImage):
         self.preview_label.setPixmap(QPixmap.fromImage(qt_image).scaled(
             self.preview_label.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation,
         ))
+
+    def _update_status_label(self):
+        active_id = self.target_window_info.get('id') if self.target_window_info else None
+        active_state = self._state_name(self.session_states.get(active_id, 'ready')) if active_id else '未绑定'
+        running_count = len(self.runners)
+        self.status_label.setText(
+            f'状态：{active_state} · 运行 {running_count}/{len(self.target_windows)} 窗口'
+        )
+
+    def _sync_running_ui(self):
+        self.running = bool(self.runners)
+        self.start_btn.setText('停止全部  Home' if self.running else '启动全部  Home')
+        self.plugin_list.setEnabled(not self.running)
+        self.dry_run_checkbox.setEnabled(not self.running)
+        self._update_status_label()
+        self._update_start_enabled()

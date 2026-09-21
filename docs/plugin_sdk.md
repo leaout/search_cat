@@ -10,7 +10,9 @@ plugins/<plugin-id>/
 └── assets/
 ```
 
-插件运行数据保存在 `plugin_data/<plugin-id>/`，不会写入插件安装目录。
+插件运行数据保存在 `plugin_data/<plugin-id>/sessions/<window-id>/`，不会写入插件安装目录。同一插件绑定多个窗口时，每个窗口拥有独立的 `data/`、`runs/`、日志和调试截图；插件配置和 assets 仍共享。
+
+多窗口运行时，后台截图和后台消息输入不需要切换前台窗口。真实鼠标、前台键盘和窗口激活会由宿主全局串行。需要“按住方向键一段时间”时，插件应使用 `keyboard.hold_combo`，不要把前台 `key_down` / `key_up` 拆成两个 RPC，否则中间可能被另一个窗口的动作插入。
 
 ## 清单
 

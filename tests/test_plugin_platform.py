@@ -3,10 +3,13 @@ import os
 import subprocess
 import sys
 import tempfile
+import threading
+import time
 import unittest
 from pathlib import Path
 
-from plugin_platform.manager import PluginManifest
+from automation.input_coordinator import ForegroundInputCoordinator
+from plugin_platform.manager import PluginManager, PluginManifest
 from plugin_platform.protocol import encode_json_line, sanitize_unicode
 
 
@@ -37,6 +40,57 @@ class PluginManifestTests(unittest.TestCase):
         manifest = PluginManifest.load(directory)
         self.assertEqual(manifest.id, 'com.searchcat.qqsg.official-task')
         self.assertIn('keyboard.background', manifest.permissions)
+
+    def test_window_sessions_use_isolated_plugin_data_directories(self):
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            manager = PluginManager.__new__(PluginManager)
+            manager.data_directory = Path(temporary_directory)
+
+            first = manager.plugin_session_data_directory('com.example', 'hwnd-101')
+            second = manager.plugin_session_data_directory('com.example', 'hwnd-202')
+
+            self.assertNotEqual(first, second)
+            self.assertTrue((first / 'data').is_dir())
+            self.assertTrue((second / 'runs').is_dir())
+
+
+class ForegroundInputCoordinatorTests(unittest.TestCase):
+    def test_foreground_operations_are_atomic_across_sessions(self):
+        coordinator = ForegroundInputCoordinator()
+        state_lock = threading.Lock()
+        active = 0
+        maximum_active = 0
+        timeline = []
+
+        def run_operation(name):
+            def operation():
+                nonlocal active, maximum_active
+                with state_lock:
+                    active += 1
+                    maximum_active = max(maximum_active, active)
+                    timeline.append((name, 'start'))
+                time.sleep(0.02)
+                with state_lock:
+                    timeline.append((name, 'end'))
+                    active -= 1
+            coordinator.run(operation)
+
+        threads = [
+            threading.Thread(target=run_operation, args=(name,))
+            for name in ('window-a', 'window-b')
+        ]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(timeout=2)
+
+        self.assertEqual(maximum_active, 1)
+        self.assertIn(timeline, [
+            [('window-a', 'start'), ('window-a', 'end'),
+             ('window-b', 'start'), ('window-b', 'end')],
+            [('window-b', 'start'), ('window-b', 'end'),
+             ('window-a', 'start'), ('window-a', 'end')],
+        ])
 
 
 class PluginWorkerTests(unittest.TestCase):

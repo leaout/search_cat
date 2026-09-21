@@ -10,8 +10,11 @@ import pyautogui
 import win32api
 import win32con
 import win32gui
+import win32process
 
 from automation.models import FrameReference, MatchResult, WindowReference
+from automation.input_coordinator import (ForegroundInputCoordinator,
+                                          GLOBAL_FOREGROUND_INPUT)
 from core.text import repair_utf8_gbk_mojibake
 from core.winhandler import WindowHandler
 from core.winoperator import Win32Keyboard
@@ -26,10 +29,14 @@ class AutomationHost:
         data_directory: Path,
         permissions: list[str],
         dry_run: bool = True,
+        session_id: str | None = None,
+        input_coordinator: ForegroundInputCoordinator | None = None,
     ):
         self.plugin_directory = plugin_directory.resolve()
         self.data_directory = data_directory.resolve()
         self.dry_run = dry_run
+        self.session_id = str(session_id or uuid.uuid4().hex)
+        self.input_coordinator = input_coordinator or GLOBAL_FOREGROUND_INPUT
         self.permissions = set(permissions)
         self.frames: dict[str, np.ndarray] = {}
         self.windows: dict[str, WindowReference] = {}
@@ -87,7 +94,33 @@ class AutomationHost:
         permission = self._required_permission(method, params)
         if permission and permission not in self.permissions:
             raise PermissionError(f'插件未声明权限: {permission}')
-        return handlers[method](params)
+        handler = handlers[method]
+        if self._uses_foreground_input(method, params):
+            return self.input_coordinator.run(
+                lambda: self._dispatch_foreground(handler, params)
+            )
+        return handler(params)
+
+    @staticmethod
+    def _uses_foreground_input(method: str, params: dict[str, Any]) -> bool:
+        if method == 'window.activate' or method == 'mouse.move':
+            return True
+        if method.startswith('mouse.') or method.startswith('keyboard.'):
+            return str(params.get('mode', 'foreground')) != 'background'
+        return False
+
+    def _dispatch_foreground(self, handler, params: dict[str, Any]) -> Any:
+        self._validate_bound_window_identity()
+        return handler(params)
+
+    def _validate_bound_window_identity(self) -> None:
+        window = self._current_window()
+        if not win32gui.IsWindow(window.hwnd):
+            raise RuntimeError('目标窗口已经失效')
+        if window.pid:
+            _, live_pid = win32process.GetWindowThreadProcessId(window.hwnd)
+            if int(live_pid) != int(window.pid):
+                raise RuntimeError('目标窗口句柄已被其他进程复用，已拒绝发送键鼠输入')
 
     @staticmethod
     def _required_permission(method: str, params: dict[str, Any]) -> str | None:

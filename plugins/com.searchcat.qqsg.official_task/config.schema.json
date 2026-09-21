@@ -130,6 +130,25 @@
       "maximum": 2,
       "default": 0.35
     },
+    "recovery_click_point": {
+      "type": "array",
+      "title": "纠错时恢复操作的安全场景坐标（留空自动计算）",
+      "default": []
+    },
+    "recovery_escape_wait": {
+      "type": "number",
+      "title": "纠错按 Esc 后等待秒数",
+      "minimum": 0.1,
+      "maximum": 3,
+      "default": 0.45
+    },
+    "recovery_settle_wait": {
+      "type": "number",
+      "title": "纠错恢复控制后等待秒数",
+      "minimum": 0.2,
+      "maximum": 5,
+      "default": 0.8
+    },
     "minimap_region": {
       "type": "array",
       "title": "小地图名称和坐标 OCR 区域 [x,y,w,h]",
@@ -331,8 +350,8 @@
     },
     "unchanged_retries": {
       "type": "integer",
-      "title": "任务内容不变重试次数",
-      "minimum": 0,
+      "title": "任务内容不变时优先补偿 NPC 对话次数",
+      "minimum": 1,
       "maximum": 10,
       "default": 3
     },
@@ -343,12 +362,40 @@
       "maximum": 5,
       "default": 2
     },
+    "completion_recovery_rounds": {
+      "type": "integer",
+      "title": "任务消失后先执行遮挡窗口纠错的轮数",
+      "minimum": 1,
+      "maximum": 5,
+      "default": 2
+    },
     "dialog_wait": {
       "type": "number",
       "title": "打开对话后等待秒数",
       "minimum": 0.2,
       "maximum": 10,
       "default": 1
+    },
+    "dialog_finish_enter_count": {
+      "type": "integer",
+      "title": "普通 NPC 对话结束时 Enter 次数",
+      "minimum": 1,
+      "maximum": 10,
+      "default": 3
+    },
+    "dialog_finish_enter_interval": {
+      "type": "number",
+      "title": "NPC 对话推进 Enter 间隔秒数",
+      "minimum": 0.2,
+      "maximum": 3,
+      "default": 0.8
+    },
+    "dialog_finish_settle_wait": {
+      "type": "number",
+      "title": "NPC 对话推进后等待秒数",
+      "minimum": 0.2,
+      "maximum": 5,
+      "default": 1.2
     },
     "template_threshold": {
       "type": "number",

@@ -72,14 +72,13 @@ def ocr_line(text, confidence=0.95):
 class OfficialTaskNavigationTests(unittest.TestCase):
     def test_runtime_step_retries_until_success(self):
         attempts = []
-        logs = []
-        context = SimpleNamespace(
-            config={'runtime_retry_interval': 0},
-            step=lambda _name: nullcontext(),
-            log=lambda message, level='info': logs.append((level, message)),
-            sleep=lambda _seconds: None,
-            dry_run=False,
-        )
+        context = FakeContext([])
+        context.config.update({
+            'runtime_retry_interval': 0,
+            'recovery_escape_wait': 0,
+            'recovery_settle_wait': 0,
+        })
+        context.step = lambda _name: nullcontext()
 
         def operation():
             attempts.append(len(attempts) + 1)
@@ -91,7 +90,11 @@ class OfficialTaskNavigationTests(unittest.TestCase):
 
         self.assertEqual(result, 'completed')
         self.assertEqual(attempts, [1, 2, 3])
-        self.assertEqual(sum(level == 'warning' for level, _message in logs), 2)
+        self.assertEqual(
+            sum(level == 'warning' and '本次未完成' in message
+                for level, message in context.logs),
+            2,
+        )
 
     def test_map_name_accepts_adjacent_ocr_transposition(self):
         expected = '\u6210\u90fd.\u5b50\u57ce'
@@ -141,6 +144,40 @@ class OfficialTaskNavigationTests(unittest.TestCase):
         self.assertEqual(clicks[0][:2], (500, 280))
         self.assertEqual(clicks[0][2]['coordinate_space'], 'client')
 
+    def test_recovery_closes_overlay_and_restores_gameplay_focus(self):
+        context = FakeContext([])
+        context.config.update({
+            'recovery_escape_wait': 0,
+            'recovery_settle_wait': 0,
+        })
+
+        PLUGIN._recover_gameplay(context, '人物未移动')
+
+        self.assertEqual(context.key_events, [('press', 'esc', 'foreground')])
+        clicks = [event for event in context.logs if event[0] == 'click']
+        self.assertEqual(len(clicks), 1)
+        self.assertTrue(any('进入纠错逻辑' in message
+                            for level, message in context.logs
+                            if level == 'warning'))
+
+    def test_finish_dialog_allows_lag_and_restores_control(self):
+        context = FakeContext([])
+        context.config.update({
+            'dialog_finish_enter_count': 3,
+            'dialog_finish_enter_interval': 0,
+            'dialog_finish_settle_wait': 0,
+            'restore_control_wait': 0,
+        })
+
+        PLUGIN._finish_npc_dialog(context)
+
+        self.assertEqual(
+            context.key_events,
+            [('press', 'enter', 'foreground')] * 3,
+        )
+        clicks = [event for event in context.logs if event[0] == 'click']
+        self.assertEqual(len(clicks), 1)
+
     def test_terrain_model_lookup_ignores_map_punctuation(self):
         config = {'terrain_models': {'成都.子城': {'terrain_records': [[1]]}}}
         self.assertEqual(
@@ -162,9 +199,15 @@ class OfficialTaskNavigationTests(unittest.TestCase):
             PLUGIN._accept_official_task(context)
 
     def test_task_presence_accepts_misread_npc_prefix(self):
-        self.assertTrue(PLUGIN._has_official_task('IPC：刘'))
+        self.assertFalse(PLUGIN._has_official_task('IPC：刘'))
         self.assertTrue(PLUGIN._has_official_task('高级官爵任务'))
+        self.assertTrue(PLUGIN._has_official_task('高级言销任务[已充成]'))
         self.assertFalse(PLUGIN._has_official_task('普通任务'))
+
+    def test_other_trial_task_finishes_official_task_classification(self):
+        text = '魔境试炼\nNPC:苍龙\n消灭怪物:魔境天煞0/1'
+        self.assertEqual(PLUGIN._task_kind(text), 'other')
+        self.assertFalse(PLUGIN._has_official_task(text))
 
     def test_npc_ocr_consensus_resolves_unique_surname(self):
         routes = {'霍峻': [23, 20, 4], '秦密': [23, 18, 12], '向宠': [23, 15, 5]}
@@ -219,8 +262,9 @@ class OfficialTaskNavigationTests(unittest.TestCase):
                 context, '向宠', [1, 15, 16], [800, 180],
             )
 
-        clicks = [event for event in context.logs if event[0] == 'click']
-        self.assertEqual(len(clicks), 3)
+        npc_clicks = [event for event in context.logs
+                      if event[0] == 'click' and event[1][0:2] == (800, 180)]
+        self.assertEqual(len(npc_clicks), 3)
         self.assertTrue(any('未触发自动寻路' in message
                             for level, message in context.logs
                             if level == 'warning'))
@@ -249,8 +293,8 @@ class OfficialTaskNavigationTests(unittest.TestCase):
                        'from': [11, 16.2], 'to': [7.4, 16.2]}],
         }
         PLUGIN._run_terrain_test(context)
-        self.assertEqual(sum(event[0] == 'down' for event in context.key_events), 2)
-        self.assertTrue(all(event[1] == 'left' for event in context.key_events))
+        self.assertEqual(sum(event[0] == 'combo' for event in context.key_events), 2)
+        self.assertTrue(all(event[1] == ('left',) for event in context.key_events))
 
     def test_jump_connection_is_aligned_before_transfer(self):
         context = FakeContext([])
@@ -263,7 +307,7 @@ class OfficialTaskNavigationTests(unittest.TestCase):
         self.assertEqual(result, (10, 7))
         self.assertEqual(
             context.key_events,
-            [('down', 'left', 'foreground'), ('up', 'left', 'foreground')],
+            [('combo', ('left',), 0.16, 'foreground')],
         )
 
     def test_jump_connection_ignores_minimap_y_rounding_difference(self):
@@ -373,7 +417,7 @@ class OfficialTaskNavigationTests(unittest.TestCase):
 
         self.assertEqual(
             context.key_events,
-            [('down', 'right', 'foreground'), ('up', 'right', 'foreground')],
+            [('combo', ('right',), 0.1, 'foreground')],
         )
 
 
