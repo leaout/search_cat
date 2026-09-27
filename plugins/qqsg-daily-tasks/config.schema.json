@@ -1,0 +1,248 @@
+{
+  "type": "object",
+  "properties": {
+    "task_mode": {
+      "type": "string",
+      "title": "任务运行模式（sequence=完整流程，single=单任务调试）",
+      "enum": ["sequence", "single"],
+      "default": "sequence"
+    },
+    "single_task": {
+      "type": "string",
+      "title": "单任务调试目标",
+      "enum": ["gai_xia_xue_yi", "mie_shu_jing_cang", "ju_xiao_lian", "transport"],
+      "default": "gai_xia_xue_yi"
+    },
+    "task_sequence": {
+      "type": "array",
+      "title": "任务顺序",
+      "default": ["gai_xia_xue_yi", "mie_shu_jing_cang", "ju_xiao_lian", "transport"]
+    },
+    "answer_region": {
+      "type": "array",
+      "title": "举孝廉答题区域 [x,y,w,h]",
+      "default": [30, 70, 470, 430]
+    },
+    "question_bank": {
+      "type": "array",
+      "title": "题库 [{q,ans}]",
+      "default": []
+    },
+    "answer_match_threshold": {
+      "type": "number",
+      "title": "题库匹配阈值",
+      "minimum": 0.5,
+      "maximum": 1,
+      "default": 0.72
+    },
+    "answer_auto_click_confidence": {
+      "type": "number",
+      "title": "自动点击最低置信度",
+      "minimum": 0.5,
+      "maximum": 1,
+      "default": 0.72
+    },
+    "answer_max_questions": {
+      "type": "integer",
+      "title": "单轮最大题数",
+      "minimum": 1,
+      "maximum": 100,
+      "default": 20
+    },
+    "task_region": {
+      "type": "array",
+      "title": "任务栏区域 [x,y,w,h]",
+      "default": [520, 70, 270, 430]
+    },
+    "minimap_region": {
+      "type": "array",
+      "title": "小地图名称与坐标区域 [x,y,w,h]",
+      "default": [540, 0, 250, 90]
+    },
+    "minimap_ocr_confidence": {
+      "type": "number",
+      "title": "小地图 OCR 最低置信度",
+      "minimum": 0.1,
+      "maximum": 1,
+      "default": 0.45
+    },
+    "navigation_routes": {
+      "type": "object",
+      "title": "任务 NPC 路线（当前默认是成都子城）",
+      "default": {
+        "大司马": {"map": "成都.子城", "waypoints": [[10, 16]]},
+        "太仓尉": {"map": "成都.子城", "waypoints": [[28, 16]]}
+      }
+    },
+    "npc_routes": {
+      "type": "object",
+      "title": "兼容旧格式 NPC 坐标：名称 -> [地图ID, X, Y]",
+      "default": {}
+    },
+    "npc_arrival_tolerance": {
+      "type": "integer",
+      "title": "NPC 到达容差（坐标格）",
+      "minimum": 0,
+      "maximum": 3,
+      "default": 1
+    },
+    "npc_navigation_max_attempts": {
+      "type": "integer",
+      "title": "NPC 寻路最大检测次数",
+      "minimum": 5,
+      "maximum": 300,
+      "default": 60
+    },
+    "npc_seconds_per_coordinate": {
+      "type": "number",
+      "title": "NPC 寻路每格移动秒数",
+      "minimum": 0.05,
+      "maximum": 1,
+      "default": 0.18
+    },
+    "npc_navigation_scan_interval": {
+      "type": "number",
+      "title": "NPC 寻路坐标检测间隔秒数",
+      "minimum": 0.2,
+      "maximum": 3,
+      "default": 0.65
+    },
+    "transport_keyword": {
+      "type": "string",
+      "title": "运送任务关键词",
+      "default": "运送"
+    },
+    "transport_max_cycles": {
+      "type": "integer",
+      "title": "最多运送任务轮数",
+      "minimum": 1,
+      "maximum": 100,
+      "default": 20
+    },
+    "transport_navigation_wait": {
+      "type": "number",
+      "title": "点击 NPC 后自动寻路等待秒数",
+      "minimum": 1,
+      "maximum": 120,
+      "default": 8
+    },
+    "transport_dialog_enter_count": {
+      "type": "integer",
+      "title": "提交任务连续回车次数",
+      "minimum": 1,
+      "maximum": 10,
+      "default": 4
+    },
+    "dialog_key_interval": {
+      "type": "number",
+      "title": "任务对话按键间隔秒数",
+      "minimum": 0.1,
+      "maximum": 3,
+      "default": 0.35
+    },
+    "gai_xia_start_enter_count": {
+      "type": "integer",
+      "title": "垓下学艺接取对话回车次数",
+      "minimum": 1,
+      "maximum": 12,
+      "default": 6
+    },
+    "gai_xia_transition_wait": {
+      "type": "number",
+      "title": "垓下学艺进入霸王城等待秒数",
+      "minimum": 1,
+      "maximum": 30,
+      "default": 4
+    },
+    "gai_xia_mentor_wait": {
+      "type": "number",
+      "title": "垓下学艺导师自动寻路等待秒数",
+      "minimum": 1,
+      "maximum": 120,
+      "default": 3
+    },
+    "gai_xia_start_meditation_enter_count": {
+      "type": "integer",
+      "title": "垓下学艺开始静修回车次数",
+      "minimum": 1,
+      "maximum": 8,
+      "default": 2
+    },
+    "gai_xia_completion_wait": {
+      "type": "number",
+      "title": "垓下学艺开始静修后等待秒数",
+      "minimum": 1,
+      "maximum": 60,
+      "default": 5
+    },
+    "mie_shu_start_enter_count": {
+      "type": "integer",
+      "title": "灭鼠靖仓接取对话回车次数",
+      "minimum": 1,
+      "maximum": 12,
+      "default": 6
+    },
+    "mie_shu_transition_wait": {
+      "type": "number",
+      "title": "灭鼠靖仓进入地鼠区域等待秒数",
+      "minimum": 1,
+      "maximum": 30,
+      "default": 4
+    },
+    "mie_shu_target_key": {
+      "type": "string",
+      "title": "灭鼠靖仓锁定目标按键",
+      "default": "tab"
+    },
+    "mie_shu_attack_key": {
+      "type": "string",
+      "title": "灭鼠靖仓普通攻击按键",
+      "default": "a"
+    },
+    "mie_shu_pickup_key": {
+      "type": "string",
+      "title": "灭鼠靖仓拾取按键",
+      "default": "c"
+    },
+    "mie_shu_attack_interval": {
+      "type": "number",
+      "title": "灭鼠靖仓攻击循环间隔秒数",
+      "minimum": 0.2,
+      "maximum": 5,
+      "default": 0.8
+    },
+    "mie_shu_timeout_seconds": {
+      "type": "number",
+      "title": "灭鼠靖仓单轮最长战斗秒数",
+      "minimum": 30,
+      "maximum": 1800,
+      "default": 600
+    },
+    "dry_run_combat_cycles": {
+      "type": "integer",
+      "title": "模拟运行战斗循环次数",
+      "minimum": 1,
+      "maximum": 20,
+      "default": 3
+    },
+    "mie_shu_submit_wait": {
+      "type": "number",
+      "title": "灭鼠靖仓返回 NPC 等待秒数",
+      "minimum": 1,
+      "maximum": 120,
+      "default": 3
+    },
+    "mie_shu_submit_enter_count": {
+      "type": "integer",
+      "title": "灭鼠靖仓提交任务回车次数",
+      "minimum": 1,
+      "maximum": 10,
+      "default": 4
+    },
+    "dry_run": {
+      "type": "boolean",
+      "title": "模拟运行",
+      "default": true
+    }
+  }
+}

@@ -10,6 +10,8 @@ from pathlib import Path
 
 MAP_DATA_PATH = 'res\\Txt\\MapData.txt'
 PACKAGE_MAGIC = 100
+CONNECTION_HINTS = ('portal', 'teleport', 'transport', 'entrance', 'exit', 'gate', 'link',
+                    'transfer', 'door', '传送', '入口', '出口', '地图连接')
 
 
 @dataclass(frozen=True)
@@ -74,6 +76,44 @@ class QQSGPackage:
             raise ValueError(f'{entry.name} 解压尺寸不正确')
         return payload
 
+    def list_entries(self, prefix: str = '') -> list[str]:
+        """List indexed package paths without extracting the game archive."""
+        file_size = self.path.stat().st_size
+        with self.path.open('rb') as stream:
+            header = stream.read(16)
+            if len(header) != 16:
+                raise ValueError('objects.pkg 文件头不完整')
+            magic, count, table_offset, table_size = struct.unpack('<4I', header)
+            if magic != PACKAGE_MAGIC or count > 2_000_000 or table_offset + table_size > file_size:
+                raise ValueError('objects.pkg 索引无效')
+            stream.seek(table_offset)
+            table = stream.read(table_size)
+        wanted_prefix = prefix.replace('/', '\\').casefold()
+        names = []
+        cursor = 0
+        for _ in range(count):
+            if cursor + 2 > len(table):
+                break
+            name_length = struct.unpack_from('<H', table, cursor)[0]
+            cursor += 2
+            entry_end = cursor + name_length + 16
+            if entry_end > len(table):
+                break
+            raw_name = table[cursor:cursor + name_length]
+            cursor += name_length
+            cursor += 16
+            name = raw_name.decode('gb18030', errors='replace').replace('/', '\\')
+            if not wanted_prefix or name.casefold().startswith(wanted_prefix):
+                names.append(name)
+        return names
+
+    def connection_candidates(self) -> list[str]:
+        """Find package resources whose names may describe map transitions."""
+        return [
+            name for name in self.list_entries()
+            if any(hint in name.casefold() for hint in CONNECTION_HINTS)
+        ]
+
 
 def normalize_map_name(value: str) -> str:
     """Normalize punctuation used differently by the client and old coordinate lists."""
@@ -94,7 +134,11 @@ def parse_map_catalog(payload: bytes) -> dict[str, dict]:
             continue
         map_name = normalize_map_name(columns[2])
         if map_name:
-            result.setdefault(map_name, {'name': columns[2].replace('·', '.'), 'id': map_id})
+            result.setdefault(map_name, {
+                'name': columns[2].replace('·', '.'),
+                'id': map_id,
+                'resource': columns[1].replace('\\', '/'),
+            })
     if not result:
         raise ValueError('MapData.txt 中没有解析到地图记录')
     return result

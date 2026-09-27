@@ -19,8 +19,7 @@ from PyQt5.QtWidgets import (QApplication, QMainWindow, QVBoxLayout, QHBoxLayout
 from PyQt5.QtCore import Qt, QMetaObject, QObject, Q_ARG, QTimer, QDateTime
 from PyQt5.QtGui import QIcon, QFont
 from feature.ocr_feature import OCRFeature
-from feature.mouse_clicker_feature import MouseClickerFeature
-from feature.window_key_feature import WindowKeyFeature
+from feature.automation_feature import AutomationFeature
 from feature.coord_helper_feature import CoordHelperFeature
 from feature.yolo_feature import YOLOFeature
 from feature.travel_feature import TravelFeature
@@ -174,11 +173,8 @@ class QSearchApp(BaseGUI):
         self.ocr_feature = OCRFeature(self)
         self.ocr_feature.create_ui()
         
-        self.clicker_feature = MouseClickerFeature(self)
-        self.clicker_feature.create_ui()
-        
-        self.window_key_feature = WindowKeyFeature(self)
-        self.window_key_feature.create_ui()
+        self.automation_feature = AutomationFeature(self)
+        self.automation_feature.create_ui()
         
         self.coord_helper_feature = CoordHelperFeature(self)
         self.coord_helper_feature.create_ui()
@@ -196,8 +192,7 @@ class QSearchApp(BaseGUI):
         
         self.feature_groups = {
             'OCR识别': self.ocr_feature.group_box,
-            '连点器': self.clicker_feature.group_box,
-            '窗口按键': self.window_key_feature.group_box,
+            '自动操作': self.automation_feature.group_box,
             '坐标助手': self.coord_helper_feature.group_box,
             'YOLO检测': self.yolo_feature.group_box,
             '行脚助手': self.travel_feature.group_box,
@@ -251,8 +246,8 @@ class QSearchApp(BaseGUI):
         self.feature_combo = QListWidget()
         self.feature_combo.setObjectName('featureNav')
         self.feature_combo.addItems([
-            'OCR识别', '行脚助手', '脚本平台', '连点器',
-            '窗口按键', '坐标助手', 'YOLO检测',
+            'OCR识别', '行脚助手', '脚本平台', '自动操作',
+            '坐标助手', 'YOLO检测',
         ])
         self.feature_combo.setCurrentRow(0)
         self.feature_combo.setSpacing(3)
@@ -285,8 +280,7 @@ class QSearchApp(BaseGUI):
         self.right_panel.setVisible(feature_name == 'OCR识别')
         display_names = {
             'OCR识别': 'OCR 识别',
-            '连点器': '高级连点器',
-            '窗口按键': '窗口按键',
+            '自动操作': '自动操作',
             '坐标助手': '坐标助手',
             'YOLO检测': 'YOLO 目标检测',
             '行脚助手': '行脚洞口助手',
@@ -295,8 +289,7 @@ class QSearchApp(BaseGUI):
         self.page_title.setText(display_names.get(feature_name, feature_name))
         hints = {
             'OCR识别': '按步骤选择窗口和题目区域，建议先测试再启动',
-            '连点器': '配置输入方式、执行位置和运行频率',
-            '窗口按键': '选择目标窗口并配置循环按键序列',
+            '自动操作': '统一配置按键链或鼠标点击，可选择前台或后台执行',
             '坐标助手': '记录目标窗口内的点坐标和区域',
             'YOLO检测': '加载模型并配置目标检测区域',
             '行脚助手': '识别行脚场景并判断 1–6 号洞口',
@@ -313,10 +306,8 @@ class QSearchApp(BaseGUI):
         
         if self.current_feature == 'OCR识别':
             self.ocr_feature.toggle()
-        elif self.current_feature == '连点器':
-            self.clicker_feature.toggle()
-        elif self.current_feature == '窗口按键':
-            self.window_key_feature.toggle()
+        elif self.current_feature == '自动操作':
+            self.automation_feature.toggle()
         elif self.current_feature == '坐标助手':
             self.coord_helper_feature.toggle() if hasattr(self.coord_helper_feature, 'toggle') else None
         elif self.current_feature == 'YOLO检测':
@@ -329,7 +320,7 @@ class QSearchApp(BaseGUI):
     def emergency_stop(self):
         """Stop automation immediately from a global safety hotkey."""
         for feature in (
-            self.ocr_feature, self.clicker_feature, self.window_key_feature,
+            self.ocr_feature, self.automation_feature,
             self.yolo_feature, self.travel_feature, self.script_platform_feature,
         ):
             try:

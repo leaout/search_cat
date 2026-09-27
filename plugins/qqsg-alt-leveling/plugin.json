@@ -1,0 +1,16 @@
+{
+  "id": "com.searchcat.qqsg.alt-leveling",
+  "name": "QQ三国小号起号",
+  "version": "0.1.1",
+  "sdk_version": "1",
+  "entry": "main.py",
+  "description": "面向蜀国游侠小号的 1-50 级任务引擎，以当前客户端任务栏为准，支持寻路、对话、状态保存和断点续跑。",
+  "permissions": [
+    "window.bind",
+    "screen.capture",
+    "mouse.foreground",
+    "keyboard.foreground",
+    "filesystem.plugin_data"
+  ],
+  "config_schema": "config.schema.json"
+}

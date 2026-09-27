@@ -7,13 +7,49 @@ import win32gui
 from PyQt5.QtCore import QThread, pyqtSignal
 from PyQt5.QtWidgets import (QPushButton, QLabel, QVBoxLayout,
                             QHBoxLayout, QGroupBox, QLineEdit,
-                            QDoubleSpinBox, QTextEdit, QCheckBox)
+                            QDoubleSpinBox, QTextEdit, QCheckBox,
+                            QComboBox, QInputDialog, QMessageBox)
 
 from core.winhandler import WindowHandler
 from core.winoperator import Win32Keyboard
 
 
 CONFIG_FILE = Path('data/window_key_config.json')
+
+DEFAULT_PROFILE_NAME = '默认方案'
+DEFAULT_PROFILE = {
+    'key_combination': 'space',
+    'delay_between_keys': 0.1,
+    'loop_interval': 5.0,
+    'background_mode': False,
+}
+
+
+def _profile_values(value):
+    """Return a validated profile, filling fields missing from old configs."""
+    source = value if isinstance(value, dict) else {}
+    result = dict(DEFAULT_PROFILE)
+    result['key_combination'] = str(source.get('key_combination', DEFAULT_PROFILE['key_combination']) or 'space')
+    try:
+        result['delay_between_keys'] = min(5.0, max(0.0, float(source.get('delay_between_keys', 0.1))))
+    except (TypeError, ValueError):
+        result['delay_between_keys'] = DEFAULT_PROFILE['delay_between_keys']
+    try:
+        result['loop_interval'] = min(300.0, max(0.1, float(source.get('loop_interval', 5.0))))
+    except (TypeError, ValueError):
+        result['loop_interval'] = DEFAULT_PROFILE['loop_interval']
+    result['background_mode'] = bool(source.get('background_mode', False))
+    return result
+
+
+def _parse_repeat_suffix(text):
+    """Parse ``q*3``/``q x3``/``q×3`` and return ``(key_text, repeat)``."""
+    match = re.match(r'^(.+?)\s*(?:\*|[xX×]|重复)\s*(\d+)\s*$', text)
+    if not match:
+        return text, 1
+    key_text, repeat_text = match.groups()
+    repeat = max(1, min(99, int(repeat_text)))
+    return key_text.strip(), repeat
 
 class WindowKeyWorker(QThread):
     """工作线程：遍历窗口并按键"""
@@ -35,7 +71,7 @@ class WindowKeyWorker(QThread):
     def _parse_key_combination(self, combination):
         """解析按键组合字符串"""
         if not combination:
-            return [['space']]  # 默认按键
+            return [{'keys': ['space'], 'repeat': 1}]  # 默认按键
 
         # 分割按键序列
         sequence = []
@@ -46,12 +82,40 @@ class WindowKeyWorker(QThread):
             if not part:
                 continue
 
+            part, repeat = _parse_repeat_suffix(part)
             # 同时兼容 ctrl+a 和 ctrl-a，-> 只负责分隔按键序列。
             keys = [key.strip() for key in re.split(r'[+-]', part) if key.strip()]
             if keys:
-                sequence.append(keys)
+                sequence.append({'keys': keys, 'repeat': repeat})
 
-        return sequence if sequence else [['space']]
+        return sequence if sequence else [{'keys': ['space'], 'repeat': 1}]
+
+    @staticmethod
+    def _normalise_group(group):
+        """Support the old list representation as well as repeat-aware groups."""
+        if isinstance(group, dict):
+            keys = group.get('keys') or ['space']
+            repeat = max(1, min(99, int(group.get('repeat', 1))))
+            return keys, repeat
+        if isinstance(group, (list, tuple)):
+            return list(group) or ['space'], 1
+        return [str(group)], 1
+
+    def _press_group(self, win32_keyboard, group, background=False):
+        keys, repeat = self._normalise_group(group)
+        for _ in range(repeat):
+            if background:
+                if len(keys) > 1:
+                    win32_keyboard.background_press_combination(self.target_hwnd, *keys)
+                else:
+                    win32_keyboard.background_press(self.target_hwnd, keys[0])
+            else:
+                if len(keys) > 1:
+                    win32_keyboard.press_combination(*keys)
+                else:
+                    win32_keyboard.press(keys[0])
+            if self.delay_between_keys > 0:
+                time.sleep(self.delay_between_keys)
 
     def run(self):
         """线程主循环 - 对单个目标窗口循环按键"""
@@ -66,29 +130,19 @@ class WindowKeyWorker(QThread):
 
                 try:
                     if self.background_mode:
-                        hwnd = self.target_hwnd
                         for key_group in self.key_sequence:
-                            if isinstance(key_group, list) and len(key_group) > 1:
-                                win32_keyboard.background_press_combination(hwnd, *key_group)
-                            else:
-                                key = key_group[0] if isinstance(key_group, list) else key_group
-                                win32_keyboard.background_press(hwnd, key)
-                            time.sleep(self.delay_between_keys)
+                            self._press_group(win32_keyboard, key_group, background=True)
                     else:
                         win32gui.SetForegroundWindow(self.target_hwnd)
                         time.sleep(self.delay_between_keys)
                         for key_group in self.key_sequence:
-                            if isinstance(key_group, list) and len(key_group) > 1:
-                                win32_keyboard.press_combination(*key_group)
-                            else:
-                                key = key_group[0] if isinstance(key_group, list) else key_group
-                                win32_keyboard.press(key)
-                            time.sleep(self.delay_between_keys)
+                            self._press_group(win32_keyboard, key_group)
 
                 except Exception as e:
                     self.error_occurred.emit(f"按键失败: {str(e)}")
-                    if not self.is_running:
-                        break
+                    # 目标窗口失效或输入失败时停止当前线程，避免错误被无限重复刷屏。
+                    self.is_running = False
+                    break
 
                 if not self.is_running:
                     break
@@ -122,6 +176,30 @@ class WindowKeyFeature:
         self.group_box = QGroupBox("窗口按键")
         window_key_layout = QVBoxLayout(self.group_box)
 
+        # 方案栏：每套方案保存一组按键和循环参数，切换时立即恢复。
+        profile_layout = QHBoxLayout()
+        profile_layout.addWidget(QLabel('方案:'))
+        self.profile_combo = QComboBox()
+        self.profile_combo.setMinimumWidth(150)
+        self.profile_combo.addItems(list(self.saved_config['profiles'].keys()))
+        self.profile_combo.setCurrentText(self.saved_config['active_profile'])
+        profile_layout.addWidget(self.profile_combo)
+        self.save_profile_btn = QPushButton('保存')
+        self.save_profile_btn.setToolTip('保存当前方案')
+        self.save_profile_btn.clicked.connect(self.save_current_profile)
+        profile_layout.addWidget(self.save_profile_btn)
+        self.save_as_profile_btn = QPushButton('另存为')
+        self.save_as_profile_btn.clicked.connect(self.save_as_profile)
+        profile_layout.addWidget(self.save_as_profile_btn)
+        self.delete_profile_btn = QPushButton('删除')
+        self.delete_profile_btn.clicked.connect(self.delete_profile)
+        profile_layout.addWidget(self.delete_profile_btn)
+        profile_layout.addStretch()
+        window_key_layout.addLayout(profile_layout)
+
+        self._loading_profile = False
+        self.profile_combo.currentTextChanged.connect(self.switch_profile)
+
         # 第一行：选择窗口
         window_layout = QHBoxLayout()
         self.choose_btn = QPushButton('选择窗口')
@@ -133,7 +211,7 @@ class WindowKeyFeature:
         window_key_layout.addLayout(window_layout)
 
         # 说明文本
-        info_label = QLabel('支持按键组合，如 "space" 或 "ctrl+a->b" 或 "f5"')
+        info_label = QLabel('按键用 -> 连接；重复写法：q*3、q×3 或 ctrl+a*2（每个链条项最多 99 次）')
         info_label.setStyleSheet("color: gray; font-size: 11px;")
         window_key_layout.addWidget(info_label)
 
@@ -141,13 +219,12 @@ class WindowKeyFeature:
         key_layout = QHBoxLayout()
         key_layout.addWidget(QLabel('按键组合:'))
         self.key_input = QLineEdit()
-        self.key_input.setText(str(self.saved_config.get('key_combination', 'space')))
-        self.key_input.setPlaceholderText('如: a->b-c->space')
+        self.key_input.setPlaceholderText('如: q*3->space->ctrl+a*2')
         key_layout.addWidget(self.key_input)
         key_layout.addWidget(QLabel('间隔(秒):'))
         self.delay_input = QDoubleSpinBox()
         self.delay_input.setRange(0, 5)
-        self.delay_input.setValue(float(self.saved_config.get('delay_between_keys', 0.1)))
+        self.delay_input.setValue(0.1)
         self.delay_input.setSingleStep(0.1)
         self.delay_input.setDecimals(1)
         key_layout.addWidget(self.delay_input)
@@ -158,14 +235,14 @@ class WindowKeyFeature:
         loop_layout.addWidget(QLabel('循环间隔(秒):'))
         self.loop_interval_input = QDoubleSpinBox()
         self.loop_interval_input.setRange(0.1, 300)
-        self.loop_interval_input.setValue(float(self.saved_config.get('loop_interval', 5)))
+        self.loop_interval_input.setValue(5.0)
         self.loop_interval_input.setSingleStep(0.5)
         self.loop_interval_input.setDecimals(1)
         loop_layout.addWidget(self.loop_interval_input)
 
         self.background_cb = QCheckBox('后台模式')
         self.background_cb.setToolTip('启用后不激活窗口，直接向后台发送按键')
-        self.background_cb.setChecked(bool(self.saved_config.get('background_mode', False)))
+        self.background_cb.setChecked(False)
         loop_layout.addWidget(self.background_cb)
 
         loop_layout.addWidget(QLabel('说明: 每次循环完成后等待此时间再重新开始'))
@@ -206,6 +283,8 @@ class WindowKeyFeature:
         self.loop_interval_input.valueChanged.connect(self.save_config)
         self.background_cb.toggled.connect(self.save_config)
 
+        self._load_active_profile()
+
         last_window = self.saved_config.get('last_window')
         if isinstance(last_window, dict) and last_window.get('title'):
             self.window_label.setText(
@@ -220,27 +299,136 @@ class WindowKeyFeature:
     def _load_config():
         try:
             value = json.loads(CONFIG_FILE.read_text(encoding='utf-8'))
-            return value if isinstance(value, dict) else {}
+            if not isinstance(value, dict):
+                value = {}
         except (FileNotFoundError, OSError, ValueError, json.JSONDecodeError):
-            return {}
+            value = {}
 
-    def save_config(self, *_args):
-        config = {
-            'key_combination': self.key_input.text(),
+        # Migrate the original flat config into the profile format without
+        # losing the user's existing key chain or selected window metadata.
+        raw_profiles = value.get('profiles')
+        if isinstance(raw_profiles, dict) and raw_profiles:
+            profiles = {
+                str(name): _profile_values(profile)
+                for name, profile in raw_profiles.items()
+                if str(name).strip()
+            }
+        else:
+            legacy = {key: value[key] for key in DEFAULT_PROFILE if key in value}
+            profiles = {DEFAULT_PROFILE_NAME: _profile_values(legacy)}
+
+        if not profiles:
+            profiles = {DEFAULT_PROFILE_NAME: dict(DEFAULT_PROFILE)}
+        active = str(value.get('active_profile') or next(iter(profiles)))
+        if active not in profiles:
+            active = next(iter(profiles))
+        return {
+            'profiles': profiles,
+            'active_profile': active,
+            'last_window': value.get('last_window') if isinstance(value.get('last_window'), dict) else None,
+        }
+
+    def _active_profile(self):
+        name = self.saved_config.get('active_profile', DEFAULT_PROFILE_NAME)
+        return self.saved_config['profiles'].setdefault(name, dict(DEFAULT_PROFILE))
+
+    def _load_active_profile(self):
+        profile = _profile_values(self._active_profile())
+        self._loading_profile = True
+        try:
+            self.key_input.setText(str(profile['key_combination']))
+            self.delay_input.setValue(float(profile['delay_between_keys']))
+            self.loop_interval_input.setValue(float(profile['loop_interval']))
+            self.background_cb.setChecked(bool(profile['background_mode']))
+        finally:
+            self._loading_profile = False
+
+    def _capture_active_profile(self):
+        profile = self._active_profile()
+        profile.update({
+            'key_combination': self.key_input.text().strip(),
             'delay_between_keys': self.delay_input.value(),
             'loop_interval': self.loop_interval_input.value(),
             'background_mode': self.background_cb.isChecked(),
-        }
-        previous_window = self.saved_config.get('last_window')
-        if isinstance(previous_window, dict):
-            config['last_window'] = previous_window
+        })
+        return profile
+
+    def _write_config(self):
         CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
-        try:
-            CONFIG_FILE.write_text(
-                json.dumps(config, ensure_ascii=False, indent=2),
-                encoding='utf-8',
+        CONFIG_FILE.write_text(
+            json.dumps(self.saved_config, ensure_ascii=False, indent=2),
+            encoding='utf-8',
+        )
+
+    def switch_profile(self, name):
+        if self._loading_profile or not name or name not in self.saved_config['profiles']:
+            return
+        self._capture_active_profile()
+        self.saved_config['active_profile'] = name
+        self._load_active_profile()
+        self.save_config()
+        self.status_label.setText(f'状态: 已切换到「{name}」')
+
+    def save_current_profile(self):
+        self._capture_active_profile()
+        self.save_config()
+        self.status_label.setText(f'状态: 方案「{self.saved_config["active_profile"]}」已保存')
+
+    def save_as_profile(self):
+        name, accepted = QInputDialog.getText(self.group_box, '另存为方案', '方案名称:')
+        name = name.strip()
+        if not accepted or not name:
+            return
+        if name in self.saved_config['profiles']:
+            answer = QMessageBox.question(
+                self.group_box, '覆盖方案', f'方案「{name}」已存在，是否覆盖？',
+                QMessageBox.Yes | QMessageBox.No, QMessageBox.No,
             )
-            self.saved_config = config
+            if answer != QMessageBox.Yes:
+                return
+        self._capture_active_profile()
+        self.saved_config['profiles'][name] = dict(self._active_profile())
+        self.saved_config['active_profile'] = name
+        self.profile_combo.blockSignals(True)
+        try:
+            if self.profile_combo.findText(name) < 0:
+                self.profile_combo.addItem(name)
+            self.profile_combo.setCurrentText(name)
+        finally:
+            self.profile_combo.blockSignals(False)
+        self.save_config()
+        self.status_label.setText(f'状态: 已另存为「{name}」')
+
+    def delete_profile(self):
+        if len(self.saved_config['profiles']) <= 1:
+            self.status_label.setText('状态: 至少保留一套方案')
+            return
+        name = self.saved_config['active_profile']
+        answer = QMessageBox.question(
+            self.group_box, '删除方案', f'确定删除方案「{name}」吗？',
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.No,
+        )
+        if answer != QMessageBox.Yes:
+            return
+        del self.saved_config['profiles'][name]
+        next_name = next(iter(self.saved_config['profiles']))
+        self.saved_config['active_profile'] = next_name
+        self.profile_combo.blockSignals(True)
+        try:
+            self.profile_combo.removeItem(self.profile_combo.findText(name))
+            self.profile_combo.setCurrentText(next_name)
+        finally:
+            self.profile_combo.blockSignals(False)
+        self._load_active_profile()
+        self.save_config()
+        self.status_label.setText(f'状态: 已删除，当前为「{next_name}」')
+
+    def save_config(self, *_args):
+        if self._loading_profile:
+            return
+        self._capture_active_profile()
+        try:
+            self._write_config()
         except OSError as error:
             self.status_label.setText(f'状态: 配置保存失败：{error}')
     

@@ -23,6 +23,11 @@ from core.winoperator import Win32Keyboard
 class AutomationHost:
     """Host-side implementation of the stable plugin automation API."""
 
+    # A plugin session is created per game window.  Keep only a short recent
+    # history because a full client screenshot can be several megabytes and is
+    # only needed until the next OCR/template operation.
+    MAX_CACHED_FRAMES = 8
+
     def __init__(
         self,
         plugin_directory: Path,
@@ -235,7 +240,7 @@ class AutomationHost:
             image = image[y:y + region_height, x:x + region_width].copy()
         frame_id = uuid.uuid4().hex
         self.frames[frame_id] = image
-        if len(self.frames) > 20:
+        if len(self.frames) > self.MAX_CACHED_FRAMES:
             self.frames.pop(next(iter(self.frames)))
         frame = FrameReference(
             id=frame_id,
@@ -251,6 +256,10 @@ class AutomationHost:
         if frame_id not in self.frames:
             raise ValueError('截图已过期，请重新捕获')
         return self.frames[frame_id]
+
+    def clear_frames(self) -> None:
+        """Release captured images when a plugin session finishes."""
+        self.frames.clear()
 
     def _resource_path(self, relative_path: str) -> Path:
         path = (self.plugin_directory / 'assets' / relative_path).resolve()

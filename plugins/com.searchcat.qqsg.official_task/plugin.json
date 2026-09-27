@@ -1,10 +1,10 @@
 {
   "id": "com.searchcat.qqsg.official-task",
   "name": "QQ三国官爵任务",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "sdk_version": "1",
   "entry": "main.py",
-  "description": "OCR 读取小地图名称、坐标和官爵任务栏，按定制路点移动并依次与任务 NPC 对话。",
+  "description": "统一执行官爵、举孝廉和运送物资任务，支持自动寻路、答题和任务完成判断。",
   "permissions": [
     "window.bind",
     "screen.capture",

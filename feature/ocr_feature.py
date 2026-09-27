@@ -702,6 +702,7 @@ class OCRFeature(QObject):
         except Exception as e:
             print(f"记录未匹配问题失败: {e}")
 
+
     def __del__(self):
         """析构：确保线程停止"""
         if self.ocr_worker:

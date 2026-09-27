@@ -7,7 +7,6 @@ a = Analysis(
     pathex=['.\\.venv\\Lib\\site-packages\\'],
     binaries=[
         ('.\\.venv\\Lib\\site-packages\\paddle\\libs\\mklml.dll', '.'),
-        ('.\\.venv\\Lib\\site-packages\\paddle\\libs\\libiomp5md.dll', '.')
     ],
     datas=[
         ('data', 'data'),
@@ -15,28 +14,66 @@ a = Analysis(
         ('plugins', 'plugins'),
         ('.\\.venv\\Lib\\site-packages\\paddleocr\\tools', 'paddleocr/tools'),
         ('.\\.venv\\Lib\\site-packages\\paddleocr\\ppocr', 'paddleocr/ppocr'),
-        ('.\\.venv\\Lib\\site-packages\\paddleocr\\ppstructure', 'paddleocr/ppstructure'),  # 修复这里的路径，去掉多余空格
-        # 添加 Cython Utility 文件
-        ('.\\.venv\\Lib\\site-packages\\Cython\\Utility\\*', 'Cython/Utility'),
+        ('.\\.venv\\Lib\\site-packages\\paddleocr\\ppstructure', 'paddleocr/ppstructure'),
     ],
     hiddenimports=[
-        'paddleocr.tools', 'ppocr', 'shapely', 'pyclipper', 'skimage', 
-        'skimage.morphology', 'imgaug', 'albumentations', 'lmdb', 'docx',
-        'requests',  # 添加 requests 模块
-        'urllib3', 'chardet', 'idna', 'certifi',  # requests 的依赖
-        'Cython', 'Cython.Build', 'Cython.Compiler', 'Cython.Runtime',  # 确保 Cython 相关模块
+        # PaddleOCR imports these modules dynamically.
+        'paddleocr.tools', 'ppocr', 'shapely', 'pyclipper', 'skimage',
+        'skimage.morphology', 'imgaug', 'lmdb',
+        'requests', 'urllib3', 'chardet', 'idna', 'certifi',
         'win32api',
         'plugin_platform.worker',
     ],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=[],
+    # These packages are optional features or development-only dependencies.
+    # Excluding them avoids pulling in large model/LLM stacks that gui.py does
+    # not use.  OCR, OpenCV, PaddlePaddle and SciPy remain included.
+    excludes=[
+        'torch', 'torchvision', 'torchaudio', 'ultralytics',
+        'matplotlib', 'matplotlib.backends',
+        'langchain', 'langchain_community', 'openai',
+        'speech_recognition', 'pyaudio',
+        # Cython is only needed to build PaddleOCR's optional training
+        # utilities; the frozen application runs precompiled extensions.
+        'Cython',
+        # Table/PDF export support is not part of this app; OCR uses only the
+        # text pipeline and does not need lxml/docx/BeautifulSoup.
+        'lxml', 'docx', 'bs4',
+        # The application uses Qt Widgets only; these optional Qt modules
+        # pull in the Quick/QML and OpenGL software-rendering stack.
+        'PyQt5.QtQuick', 'PyQt5.QtQml', 'PyQt5.QtQmlModels',
+    ],
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
     cipher=block_cipher,
     noarchive=False,
 )
+
+# PyInstaller's PyQt hook collects every Qt runtime DLL.  Search Cat uses
+# QWidget/QImage/QPixmap and does not create Qt Quick/OpenGL scenes, so the
+# software renderer and unused fallback platform plugins are unnecessary.
+# Keeping this filter in the spec makes the size reduction reproducible.
+_unused_runtime_files = {
+    'PyQt5/Qt5/bin/opengl32sw.dll',
+    'PyQt5/Qt5/bin/libGLESv2.dll',
+    'PyQt5/Qt5/bin/Qt5Quick.dll',
+    'PyQt5/Qt5/bin/Qt5Qml.dll',
+    'PyQt5/Qt5/bin/Qt5QmlModels.dll',
+    'PyQt5/Qt5/bin/d3dcompiler_47.dll',
+    'PyQt5/Qt5/plugins/platforms/qoffscreen.dll',
+    'PyQt5/Qt5/plugins/platforms/qminimal.dll',
+    'PyQt5/Qt5/plugins/platforms/qwebgl.dll',
+    # OpenCV's FFmpeg bridge is only used for video I/O.  Search Cat captures
+    # screenshots and processes still images, so cv2 imports without it.
+    'cv2/opencv_videoio_ffmpeg4100_64.dll',
+    'PyQt5/Qt5/bin/Qt5Network.dll',
+    'PyQt5/Qt5/bin/Qt5DBus.dll',
+    'PyQt5/Qt5/bin/Qt5Svg.dll',
+}
+a.binaries = [entry for entry in a.binaries if entry[0].replace('\\', '/') not in _unused_runtime_files]
+
 pyz = PYZ(a.pure)
 
 exe = EXE(
@@ -55,7 +92,7 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon=['icon/icon.ico'],
+    icon='icon/icon.ico',
 )
 coll = COLLECT(
     exe,

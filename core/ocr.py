@@ -2,15 +2,41 @@ import difflib
 import cv2
 import csv
 import json
+import threading
 from PIL import Image, ImageDraw, ImageFont
 import numpy as np
 from paddleocr import PaddleOCR
-from typing import List, Tuple, Any
+from typing import Any, ClassVar, List, Tuple
 
 class Ocr:
+    """OCR facade with one shared PaddleOCR predictor per application process.
+
+    PaddleOCR keeps several large detection/recognition models in memory.  The
+    automation host is created once per bound game window, so constructing a
+    predictor in every host makes memory grow roughly linearly with the number
+    of windows.  The predictor is read-only during inference; serializing calls
+    also avoids concurrent access to Paddle's predictor from the GUI worker and
+    plugin hosts.
+    """
+
+    _shared_engine: ClassVar[Any | None] = None
+    _engine_init_lock: ClassVar[threading.Lock] = threading.Lock()
+    _inference_lock: ClassVar[threading.Lock] = threading.Lock()
+
     def __init__(self) -> None:
-        self.ocr = PaddleOCR(use_angle_cls=True, lang='ch', show_log=False)
+        if type(self)._shared_engine is None:
+            with type(self)._engine_init_lock:
+                if type(self)._shared_engine is None:
+                    type(self)._shared_engine = PaddleOCR(
+                        use_angle_cls=True, lang='ch', show_log=False,
+                    )
+        self.ocr = type(self)._shared_engine
         self.data = None  # 存储OCR识别结果
+
+    def _recognize(self, image):
+        """Run PaddleOCR under the process-wide inference lock."""
+        with type(self)._inference_lock:
+            return self.ocr.ocr(image, cls=True)
 
     def multi_scale_template_match(self, main_image_path, template_image_path, method=cv2.TM_CCOEFF_NORMED, threshold=0.6, show=False):
         scales = [0.5, 0.75, 1.0, 1.25, 1.5]  # 定义要使用的尺度列表
@@ -98,17 +124,17 @@ class Ocr:
         返回:
         List: OCR识别结果
         """
-        result = self.ocr.ocr(file_path, cls=True)
+        result = self._recognize(file_path)
         self.data = result[0] if result and result[0] else []
         if simple: return self.get_all_text(self.data)
         return self.data
 
     def do_ocr_ext(self, img_data, simple=False) -> List:
         if isinstance(img_data, str):
-            result = self.ocr.ocr(img_data, cls=True)
+            result = self._recognize(img_data)
         elif isinstance(img_data, np.ndarray):
             # img_data is already a numpy array, pass directly to PaddleOCR
-            result = self.ocr.ocr(img_data, cls=True)
+            result = self._recognize(img_data)
         else:
             # img_data is bytes, convert to numpy array
             nparr = np.frombuffer(img_data, np.uint8)
@@ -116,7 +142,7 @@ class Ocr:
             if img is None:
                 self.data = []
                 return []
-            result = self.ocr.ocr(img, cls=True)
+            result = self._recognize(img)
         self.data = result[0] if result and result[0] else []
         if simple: return self.get_all_text(self.data)
         return self.data

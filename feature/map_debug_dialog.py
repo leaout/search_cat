@@ -62,12 +62,20 @@ class MapDebugDialog(QDialog):
     npcs_collected = pyqtSignal(list)
     MAP_NAME = '成都.子城'
     MAP_ID = 23
+    TERRAIN_ENTRY_OVERRIDES = {'成都.子城': 'map/15-1.map.srv'}
 
     def __init__(self, package: Path, npc_file: Path | None = None, captured_npcs=None,
                  map_catalog=None,
-                 window_handler=None, hwnd: int | None = None, parent=None):
+                 window_handler=None, hwnd: int | None = None, parent=None,
+                 map_name: str | None = None, map_id: int | None = None,
+                 terrain_entry: str | None = None):
         super().__init__(parent)
-        self.setWindowTitle('地图调试 · 成都·子城')
+        self.MAP_NAME = str(map_name or self.MAP_NAME).replace('·', '.')
+        self.MAP_ID = int(map_id) if map_id is not None else self.MAP_ID
+        self.terrain_entry = terrain_entry or self.TERRAIN_ENTRY_OVERRIDES.get(self.MAP_NAME)
+        if not self.terrain_entry:
+            raise ValueError(f'地图“{self.MAP_NAME}”尚未建立地形文件映射，不能猜测 map/{self.MAP_ID}-1.map.srv')
+        self.setWindowTitle(f'地图调试 · {self.MAP_NAME}')
         self.resize(1120, 760)
         self.setMinimumSize(820, 540)
         self.setStyleSheet(
@@ -105,7 +113,7 @@ class MapDebugDialog(QDialog):
 
         layout = QVBoxLayout(self)
         hint = QLabel(
-            '成都·子城 / 15-1.map · 蓝：水平线  橙：斜线  绿：竖线\n'
+            f'{self.MAP_NAME} / {self.terrain_entry} · 蓝：水平线  橙：斜线  绿：竖线\n'
             '滚轮缩放，拖动平移；点击“点选人物/目标”后，直接在地图中单击位置。'
         )
         layout.addWidget(hint)
@@ -195,7 +203,7 @@ class MapDebugDialog(QDialog):
         self.status.setWordWrap(True)
         layout.addWidget(self.status)
 
-        data = QQSGPackage(package).read('map/15-1.map.srv')
+        data = QQSGPackage(package).read(self.terrain_entry)
         if len(data) < 104:
             raise ValueError('SRV 文件头不完整')
         header = struct.unpack_from('<26I', data)
@@ -270,6 +278,8 @@ class MapDebugDialog(QDialog):
         """Return reusable geometry; it contains no player start or task target."""
         return {
             'map': self.MAP_NAME,
+            'map_id': self.MAP_ID,
+            'terrain_entry': self.terrain_entry,
             'scale': float(self.factor.value()),
             'terrain_records': [list(record) for record in self.terrain_records],
             'planner': {

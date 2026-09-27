@@ -178,5 +178,7 @@ class PluginProcess(QObject):
 
     def _on_finished(self, exit_code: int, _exit_status) -> None:
         self.host.release_all_keys()
+        # Do not retain full-size numpy screenshots after a session exits.
+        self.host.clear_frames()
         self.state_changed.emit('stopped' if exit_code != 0 else 'completed')
         self.finished.emit(exit_code)

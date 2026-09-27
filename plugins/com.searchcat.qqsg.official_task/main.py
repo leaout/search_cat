@@ -2,6 +2,13 @@ import re
 import math
 from difflib import SequenceMatcher
 
+from plugin_platform.task_answering import (
+    anti_fraud_answer,
+    match_question,
+    parse_feedback_answer,
+    parse_options,
+)
+
 from core.terrain_navigation import plan_route
 
 
@@ -44,6 +51,165 @@ def _double_click(context, x, y):
 
 def _wait(context, seconds):
     context.sleep(0.1 if context.dry_run else float(seconds))
+
+
+def _ocr_text_lines(context, region, preprocess='task_scale'):
+    frame = context.capture.window(
+        mode=context.config.get('capture_mode', 'auto'),
+        area='client',
+        region=tuple(int(value) for value in region),
+    )
+    items = context.ocr.recognize(
+        frame,
+        min_confidence=float(context.config.get('answer_ocr_confidence', 0.45)),
+        preprocess=preprocess,
+    )
+    lines = []
+    for item in items or []:
+        text = str(item.get('text', '')).strip()
+        if text:
+            lines.append({'text': text, 'box': item.get('box', [])})
+    return frame, lines
+
+
+def _box_center(box):
+    points = box if isinstance(box, list) else []
+    coords = []
+    for point in points:
+        if isinstance(point, (list, tuple)) and len(point) >= 2:
+            coords.append((float(point[0]), float(point[1])))
+    if not coords:
+        return None
+    return round(sum(point[0] for point in coords) / len(coords)), round(
+        sum(point[1] for point in coords) / len(coords)
+    )
+
+
+def _record_question_feedback(context, question, options, answer, screenshot=None):
+    rows = context.storage.read_json('question_corrections.json', default=[])
+    if not isinstance(rows, list):
+        rows = []
+    normalized = ''.join(str(question).split()).lower()
+    record = next(
+        (row for row in rows if ''.join(str(row.get('question', '')).split()).lower() == normalized),
+        None,
+    )
+    if record is None:
+        record = {
+            'question': question,
+            'options': [item.get('text', '') for item in options],
+            'answer': answer,
+            'source': 'game_feedback',
+            'status': 'confirmed',
+            'screenshots': [screenshot] if screenshot else [],
+        }
+        rows.append(record)
+    else:
+        record.update({'options': [item.get('text', '') for item in options],
+                       'answer': answer, 'source': 'game_feedback', 'status': 'confirmed'})
+    context.storage.write_json('question_corrections.json', rows)
+
+
+def _run_ju_xiao_lian(context):
+    """Run the configurable automatic answer loop inside the task plugin."""
+    region = context.config.get('answer_region', [30, 70, 470, 430])
+    if not isinstance(region, list) or len(region) != 4:
+        raise ValueError('answer_region 必须是 [x, y, width, height]')
+    bank = context.config.get('question_bank', [])
+    if not bank:
+        stored_bank = context.storage.read_json('question_bank.json', default=[])
+        if isinstance(stored_bank, list):
+            bank = stored_bank
+    max_questions = max(1, int(context.config.get('answer_max_questions', 20)))
+    threshold = float(context.config.get('answer_match_threshold', 0.72))
+    for number in range(1, max_questions + 1):
+        with context.step(f'举孝廉答题 {number}/{max_questions}'):
+            _, lines = _ocr_text_lines(context, region)
+            texts = [item['text'] for item in lines]
+            if not texts:
+                context.log('答题窗口暂无 OCR 内容，等待窗口刷新')
+                _wait(context, context.config.get('answer_poll_interval', 0.8))
+                continue
+            options = parse_options(texts)
+            question = ' '.join(text for text in texts if not any(
+                text == option['text'] or text.startswith(option['letter']) for option in options
+            )).strip()
+            if not question or len(options) < 2:
+                context.log(f'答题内容尚未完整：{texts}', 'warning')
+                _wait(context, context.config.get('answer_poll_interval', 0.8))
+                continue
+            answer_record = match_question(question, bank, threshold)
+            answer = str(answer_record.get('ans', '')).strip().upper() if answer_record else ''
+            confidence = float(answer_record.get('_score', 0)) if answer_record else 0.0
+            if not answer:
+                answer, confidence = anti_fraud_answer(question, options)
+            if answer not in {item['letter'] for item in options} or confidence < float(
+                context.config.get('answer_auto_click_confidence', 0.72)
+            ):
+                context.log(f'答案置信度不足，暂停自动点击：{question}（{confidence:.3f}）', 'warning')
+                _wait(context, context.config.get('answer_poll_interval', 0.8))
+                continue
+            target = next(item for item in options if item['letter'] == answer)
+            center = _box_center(target.get('box'))
+            if center is None:
+                context.log(f'无法定位选项 {answer} 的点击坐标', 'warning')
+                continue
+            click_x = int(region[0]) + center[0]
+            click_y = int(region[1]) + center[1]
+            context.log(f'自动答题：{question} → {answer}（置信度 {confidence:.3f}）')
+            if not context.dry_run:
+                context.windows.activate()
+                context.mouse.click(click_x, click_y, mode='foreground', coordinate_space='client')
+            _wait(context, context.config.get('answer_result_wait', 0.8))
+            _, feedback_lines = _ocr_text_lines(context, region)
+            feedback = ' '.join(item['text'] for item in feedback_lines)
+            correct = parse_feedback_answer(feedback)
+            if correct and correct != answer:
+                _record_question_feedback(context, question, options, correct)
+                context.log(f'答错，已记录游戏反馈正确答案：{correct}', 'warning')
+            if any(marker in feedback for marker in ('任务完成', '答题完成', '恭喜')):
+                context.log('举孝廉答题任务完成')
+                return
+    raise RuntimeError('举孝廉答题超过最大题数，等待人工检查')
+
+
+def _run_transport_tasks(context, target_catalog):
+    """Run transport tasks using the game's task-link navigation."""
+    max_cycles = max(1, int(context.config.get('transport_max_cycles', 20)))
+    empty_scans = 0
+    completed = 0
+    for cycle in range(1, max_cycles + 1):
+        with context.step(f'运送物资任务 {cycle}/{max_cycles}'):
+            text, lines = _scan_task(context)
+            kind = _task_kind(text, context.config.get('transport_keyword', '运送'))
+            if kind == 'none' or not text.strip():
+                empty_scans += 1
+                context.log(f'运送任务栏为空（连续 {empty_scans} 次）')
+                if completed and empty_scans >= int(context.config.get('completion_confirm_scans', 2)):
+                    context.log('运送物资任务已完成，任务栏图标/卡片消失')
+                    return
+                _wait(context, context.config.get('monitor_interval', 1.5))
+                continue
+            empty_scans = 0
+            npc_name, route, fallback_point = _find_target(
+                text, lines, target_catalog, context=context,
+            )
+            if not npc_name and not fallback_point:
+                raise RuntimeError('运送任务中没有识别到目的地 NPC')
+            context.log(f'运送目的地：{npc_name or "任务栏目标"}')
+            if fallback_point and context.config.get('prefer_task_click_navigation', True):
+                _navigate_by_task_click(
+                    context, npc_name, route, fallback_point,
+                    target_catalog=target_catalog,
+                )
+            else:
+                _navigate_to_target(context, npc_name, route, fallback_point)
+            _talk_to_nearest_npc(context)
+            _finish_npc_dialog(context)
+            completed += 1
+            context.log(f'运送物资第 {completed} 次交付完成')
+            _wait(context, context.config.get('monitor_interval', 1.5))
+    raise RuntimeError('运送物资超过最大任务轮数，等待人工检查')
 
 
 def _click_dialog_action(context, action, fallback_point):
@@ -1233,8 +1399,58 @@ def on_start(context):
         _accept_official_task(context)
         _restore_game_control(context)
 
+    context.debug.watch('task_phase', f'前往任务发布 NPC：{issuer_name}')
+    context.log(f'官爵流程阶段：前往任务发布 NPC：{issuer_name}')
     _run_step_until_success(context, f'前往{issuer_name}', navigate_to_issuer)
+    context.debug.watch('task_phase', f'对话接取任务：{issuer_name}')
+    context.log(f'官爵流程阶段：对话接取任务：{issuer_name}')
     _run_step_until_success(context, f'向{issuer_name}领取任务', accept_task)
+
+    if context.config.get('task_mode') == 'daily':
+        sequence = context.config.get('task_sequence', ['ju_xiao_lian', 'transport'])
+        if not isinstance(sequence, list) or not sequence:
+            raise ValueError('task_sequence 必须是非空任务模式列表')
+        target_catalog = dict(routes)
+        if isinstance(navigation_routes, dict):
+            for route_name in navigation_routes:
+                target_catalog.setdefault(route_name, None)
+        for task_index, task_name in enumerate(sequence):
+            task_name = str(task_name).strip()
+            if task_index > 0:
+                context.debug.watch('task_phase', f'返回任务发布 NPC：{issuer_name}')
+                _run_step_until_success(context, f'返回{issuer_name}', navigate_to_issuer)
+                _run_step_until_success(context, f'重新领取{task_name}任务', accept_task)
+            if task_name == 'ju_xiao_lian':
+                context.debug.watch('task_phase', '日常任务：举孝廉答题')
+                context.log('日常任务序列：开始举孝廉答题')
+                _run_ju_xiao_lian(context)
+            elif task_name == 'transport':
+                context.debug.watch('task_phase', '日常任务：运送物资')
+                context.log('日常任务序列：开始运送物资')
+                _run_transport_tasks(context, target_catalog)
+            else:
+                raise ValueError(f'不支持的日常任务类型：{task_name}')
+        _save_progress(context, {'status': 'completed', 'task_mode': 'daily', 'task_sequence': sequence})
+        context.log('日常任务序列全部完成')
+        return
+
+    if context.config.get('task_mode') == 'ju_xiao_lian':
+        context.debug.watch('task_phase', '举孝廉自动答题')
+        context.log('官爵任务插件进入举孝廉自动答题流程')
+        _run_ju_xiao_lian(context)
+        _save_progress(context, {'status': 'completed', 'task_mode': 'ju_xiao_lian'})
+        return
+
+    if context.config.get('task_mode') == 'transport':
+        context.debug.watch('task_phase', '运送物资任务循环')
+        context.log('任务插件进入运送物资流程')
+        target_catalog = dict(routes)
+        if isinstance(navigation_routes, dict):
+            for route_name in navigation_routes:
+                target_catalog.setdefault(route_name, None)
+        _run_transport_tasks(context, target_catalog)
+        _save_progress(context, {'status': 'completed', 'task_mode': 'transport'})
+        return
 
     if context.dry_run:
         context.log('模拟运行已完成：已验证前往任务发布 NPC 和接取任务的操作序列。')
@@ -1252,10 +1468,19 @@ def on_start(context):
     seen_task = False
     completion_recovery_count = 0
     cycle = 0
+    phase = '初始化'
+
+    def set_phase(name):
+        nonlocal phase
+        phase = name
+        context.debug.watch('task_phase', phase)
+        context.log(f'官爵流程阶段：{phase}')
+
     while True:
         cycle += 1
         try:
             with context.step(f'识别并处理当前任务 {cycle}'):
+                set_phase('识别任务栏')
                 text, lines = _scan_task(context)
                 signature = _task_signature(text)
                 task_keyword = str(context.config.get('task_keyword', '官爵'))
@@ -1340,6 +1565,9 @@ def on_start(context):
                     text, lines, target_catalog, context=context,
                 )
                 context.log(f'当前目标 NPC：{npc_name or "未识别"}；任务签名：{signature}')
+                if not npc_name and not fallback_point:
+                    raise RuntimeError('任务栏中没有识别到可寻路的 NPC')
+                set_phase(f'前往任务 NPC：{npc_name or "任务栏目标"}')
                 if fallback_point and context.config.get('prefer_task_click_navigation', True):
                     _navigate_by_task_click(
                         context, npc_name, route, fallback_point,
@@ -1347,7 +1575,9 @@ def on_start(context):
                     )
                 else:
                     _navigate_to_target(context, npc_name, route, fallback_point)
+                set_phase(f'与任务 NPC 交互：{npc_name or "任务栏目标"}')
                 _talk_to_nearest_npc(context)
+                set_phase('确认任务完成或推进对话')
                 _finish_npc_dialog(context)
                 _save_progress(context, {
                     'status': 'monitoring',
@@ -1360,7 +1590,7 @@ def on_start(context):
                 _wait(context, context.config.get('monitor_interval', 1.5))
         except RuntimeError as error:
             context.log(
-                f'当前任务本轮执行失败：{error}；'
+                f'官爵流程阶段“{phase}”执行失败：{error}；'
                 '将重新识别任务栏并继续执行',
                 'warning',
             )

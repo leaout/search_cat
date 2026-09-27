@@ -1,4 +1,21 @@
-# QQ三国官爵任务插件
+# QQ三国日常任务插件
+
+## 日常任务模式
+
+在运行配置中选择：
+
+```json
+{
+  "task_mode": "daily",
+  "task_sequence": ["ju_xiao_lian", "transport"]
+}
+```
+
+支持 `official`（官爵）、`ju_xiao_lian`（举孝廉）、`transport`（运送物资）和 `daily`（按顺序执行多个任务）。
+日常模式会在每个子任务完成后返回任务发布 NPC，重新接取下一项任务。
+
+举孝廉需要先配置 `answer_region`，并使用模拟运行确认 OCR 和选项点击位置；题库可放在配置的 `question_bank`，或插件数据目录的 `question_bank.json`。
+答错后识别到游戏反馈的正确答案会写入 `question_corrections.json`，不会直接覆盖正式题库。
 
 ## 使用前提
 
@@ -130,3 +147,8 @@ accept_confirm.png
 
 首批坐标依据 [巴哈姆特 QQ 三国蜀国 NPC 资料](https://wiki2.gamer.com.tw/wiki.php?n=36531%3A%E8%9C%80%E5%9C%8BNPC)
 整理；地图 ID 始终以本机当前游戏包为准。
+
+地图调试会把 `MapData.txt` 的地图目录 ID、渲染资源名和实际 `.map.srv` 地形文件分开处理。
+例如当前客户端的成都.子城目录 ID 是 `23`，资源名是 `15-1.map`，可读取地形是
+`map/15-1.map.srv`；目录 ID 不能直接拼成 `map/23-1.map.srv`。对于没有明确资源映射的地图，
+界面会显示“仅目录记录”并禁止打开，不再猜测并展示错误地形。

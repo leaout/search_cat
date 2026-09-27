@@ -1,0 +1,18 @@
+{
+  "name": "qqsg-daily-tasks",
+  "version": "0.2.0",
+  "description": "Qqsg Daily Tasks plugin",
+  "author": {
+    "name": "Local developer"
+  },
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Qqsg Daily Tasks",
+    "shortDescription": "Use Qqsg Daily Tasks in Codex.",
+    "longDescription": "Qqsg Daily Tasks adds a local Codex plugin scaffold.",
+    "developerName": "Local developer",
+    "category": "Productivity",
+    "capabilities": [],
+    "defaultPrompt": "Help me use Qqsg Daily Tasks."
+  }
+}

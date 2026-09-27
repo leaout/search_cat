@@ -7,10 +7,10 @@ import cv2
 import win32gui
 import win32process
 from PyQt5.QtCore import Qt, QTimer
-from PyQt5.QtGui import QImage, QPixmap, QTextCursor
+from PyQt5.QtGui import QImage, QPixmap, QTextCursor, QTextOption
 from PyQt5.QtWidgets import (QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFileDialog, QGroupBox, QHBoxLayout,
-                             QLabel, QListWidget, QListWidgetItem, QMessageBox,
-                             QPushButton, QSplitter, QTextEdit, QVBoxLayout,
+                             QLabel, QListWidget, QListWidgetItem, QLineEdit, QMessageBox,
+                             QPushButton, QSizePolicy, QSplitter, QTextEdit, QVBoxLayout,
                              QWidget)
 
 from core.winhandler import WindowHandler
@@ -20,6 +20,38 @@ from plugin_platform.manager import PluginManager, PluginManifest
 from plugin_platform.qqsg_data import (QQSGPackage, find_installation, import_routes,
                                        parse_map_catalog)
 from plugin_platform.runner import PluginProcess
+
+
+class ScalablePreviewLabel(QLabel):
+    """Preview viewport whose source image never affects layout sizing."""
+
+    def __init__(self, placeholder: str):
+        super().__init__(placeholder)
+        self._source_pixmap = QPixmap()
+
+    def show_image(self, image: QImage):
+        self._source_pixmap = QPixmap.fromImage(image)
+        self.setText('')
+        self._fit_image()
+
+    def clear_image(self, placeholder: str):
+        self._source_pixmap = QPixmap()
+        super().setPixmap(QPixmap())
+        self.setText(placeholder)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._fit_image()
+
+    def _fit_image(self):
+        if self._source_pixmap.isNull():
+            return
+        target_size = self.contentsRect().size()
+        if target_size.width() <= 0 or target_size.height() <= 0:
+            return
+        super().setPixmap(self._source_pixmap.scaled(
+            target_size, Qt.KeepAspectRatio, Qt.SmoothTransformation,
+        ))
 
 
 class ScriptPlatformFeature:
@@ -149,8 +181,76 @@ class ScriptPlatformFeature:
         map_debug_btn = QPushButton('地图调试')
         map_debug_btn.clicked.connect(self.open_map_debug)
         qqsg_data_layout.addWidget(map_debug_btn)
+        map_list_btn = QPushButton('查看地图数据')
+        map_list_btn.setToolTip('显示从 QQ 三国 objects.pkg 解析出的全部地图')
+        map_list_btn.clicked.connect(self.show_parsed_maps)
+        qqsg_data_layout.addWidget(map_list_btn)
         self.qqsg_data_panel.setVisible(False)
         control_layout.addWidget(self.qqsg_data_panel)
+
+        # The daily-task plugin is commonly debugged one activity at a time.
+        # Keep this selector next to the QQSG controls so users do not need to
+        # edit a long JSON document just to switch between full and single-task
+        # runs.
+        self.daily_task_panel = QWidget()
+        daily_task_layout = QHBoxLayout(self.daily_task_panel)
+        daily_task_layout.setContentsMargins(0, 0, 0, 0)
+        daily_task_layout.setSpacing(6)
+        daily_task_layout.addWidget(QLabel('日常任务调试：'))
+        self.daily_task_combo = QComboBox()
+        self.daily_task_combo.addItem('完整流程（按任务顺序）', 'sequence')
+        self.daily_task_combo.addItem('仅垓下学艺', 'gai_xia_xue_yi')
+        self.daily_task_combo.addItem('仅灭鼠靖仓', 'mie_shu_jing_cang')
+        self.daily_task_combo.addItem('仅举孝廉答题', 'ju_xiao_lian')
+        self.daily_task_combo.addItem('仅运送物资', 'transport')
+        self.daily_task_combo.setToolTip(
+            '完整流程会按 task_sequence 执行；选择单项后只运行该任务，适合逐项调试。'
+        )
+        self.daily_task_combo.currentIndexChanged.connect(self._daily_task_selection_changed)
+        daily_task_layout.addWidget(self.daily_task_combo, 1)
+        self.daily_task_status = QLabel('')
+        self.daily_task_status.setObjectName('sectionHint')
+        daily_task_layout.addWidget(self.daily_task_status)
+        self.daily_task_panel.setVisible(False)
+        control_layout.addWidget(self.daily_task_panel)
+
+        self.leveling_panel = QWidget()
+        leveling_layout = QHBoxLayout(self.leveling_panel)
+        leveling_layout.setContentsMargins(0, 0, 0, 0)
+        leveling_layout.setSpacing(6)
+        leveling_layout.addWidget(QLabel('小号起号调试：'))
+        self.leveling_combo = QComboBox()
+        self.leveling_combo.addItem('完整流程（1-50级）', 'full')
+        self.leveling_combo.addItem('仅 1-10 级', 'level_1_10')
+        self.leveling_combo.addItem('仅 11-20 级', 'level_11_20')
+        self.leveling_combo.addItem('仅 21-30 级', 'level_21_30')
+        self.leveling_combo.addItem('仅 31-40 级', 'level_31_40')
+        self.leveling_combo.addItem('仅 41-50 级', 'level_41_50')
+        self.leveling_combo.setToolTip(
+            '完整流程从保存的等级继续；单阶段模式只执行选中的等级区间。'
+        )
+        self.leveling_combo.currentIndexChanged.connect(self._leveling_selection_changed)
+        leveling_layout.addWidget(self.leveling_combo, 1)
+        self.leveling_status = QLabel('')
+        self.leveling_status.setObjectName('sectionHint')
+        leveling_layout.addWidget(self.leveling_status)
+        self.leveling_panel.setVisible(False)
+        control_layout.addWidget(self.leveling_panel)
+
+        self.leveling_region_panel = QWidget()
+        leveling_region_layout = QHBoxLayout(self.leveling_region_panel)
+        leveling_region_layout.setContentsMargins(0, 0, 0, 0)
+        leveling_region_layout.setSpacing(6)
+        leveling_region_layout.addWidget(QLabel('起号识别区域：'))
+        leveling_task_region_btn = QPushButton('框选任务栏')
+        leveling_task_region_btn.clicked.connect(self.select_qqsg_task_region)
+        leveling_level_region_btn = QPushButton('框选等级')
+        leveling_level_region_btn.clicked.connect(self.select_level_region)
+        leveling_region_layout.addWidget(leveling_task_region_btn)
+        leveling_region_layout.addWidget(leveling_level_region_btn)
+        leveling_region_layout.addStretch(1)
+        self.leveling_region_panel.setVisible(False)
+        control_layout.addWidget(self.leveling_region_panel)
 
         window_layout = QHBoxLayout()
         window_layout.setSpacing(6)
@@ -198,34 +298,49 @@ class ScriptPlatformFeature:
 
         bottom_splitter = QSplitter(Qt.Horizontal)
         bottom_splitter.setChildrenCollapsible(False)
+        bottom_splitter.setHandleWidth(8)
+        bottom_splitter.setOpaqueResize(True)
+        bottom_splitter.setMinimumHeight(270)
 
         log_panel = QWidget()
+        log_panel.setMinimumWidth(260)
+        log_panel.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         log_layout = QVBoxLayout(log_panel)
         log_layout.setContentsMargins(0, 0, 0, 0)
         log_layout.setSpacing(5)
         log_layout.addWidget(QLabel('运行日志'))
         self.log_display = QTextEdit()
         self.log_display.setReadOnly(True)
-        self.log_display.setMinimumHeight(240)
+        self.log_display.setLineWrapMode(QTextEdit.WidgetWidth)
+        self.log_display.setWordWrapMode(QTextOption.WrapAnywhere)
+        self.log_display.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.log_display.setMinimumSize(240, 240)
+        self.log_display.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.log_display.setStyleSheet('font-family: Consolas, monospace; font-size: 12px;')
         self.log_display.document().setMaximumBlockCount(500)
         log_layout.addWidget(self.log_display, 1)
         bottom_splitter.addWidget(log_panel)
 
         preview_panel = QWidget()
+        preview_panel.setMinimumWidth(260)
+        preview_panel.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         preview_layout = QVBoxLayout(preview_panel)
         preview_layout.setContentsMargins(0, 0, 0, 0)
         preview_layout.setSpacing(5)
         preview_layout.addWidget(QLabel('脚本截图预览'))
-        self.preview_label = QLabel('脚本执行截图将在这里显示')
+        self.preview_label = ScalablePreviewLabel('脚本执行截图将在这里显示')
         self.preview_label.setAlignment(Qt.AlignCenter)
-        self.preview_label.setMinimumHeight(240)
+        self.preview_label.setMinimumSize(240, 240)
+        # A QLabel normally uses its pixmap's native width as its size hint.
+        # Ignore that hint so a large captured frame cannot squeeze the log
+        # panel; _render_frame() already scales the image to this viewport.
+        self.preview_label.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Expanding)
         self.preview_label.setStyleSheet(
             'background: #F7F9FC; border: 1px solid #E4E9F0; border-radius: 8px;'
         )
         preview_layout.addWidget(self.preview_label, 1)
         bottom_splitter.addWidget(preview_panel)
-        bottom_splitter.setSizes([420, 420])
+        bottom_splitter.setSizes([1, 1])
         bottom_splitter.setStretchFactor(0, 1)
         bottom_splitter.setStretchFactor(1, 1)
         control_layout.addWidget(bottom_splitter, 1)
@@ -234,7 +349,7 @@ class ScriptPlatformFeature:
         self.parent.left_layout.addWidget(self.group_box)
         self.refresh_plugins()
 
-    def open_map_debug(self):
+    def open_map_debug(self, map_name=None, map_id=None, terrain_entry=None):
         from feature.map_debug_dialog import MapDebugDialog
         config = self.current_config
         saved = config.get('route_data_source', {}).get('game_directory', '')
@@ -278,6 +393,9 @@ class ScriptPlatformFeature:
                 window_handler=self.window_handler,
                 hwnd=int(self.target_window_info['hwnd']) if self.target_window_info else None,
                 parent=self.group_box,
+                map_name=map_name,
+                map_id=map_id,
+                terrain_entry=terrain_entry,
             )
             dialog.plan_selected.connect(self.load_terrain_test)
             dialog.npcs_collected.connect(self.save_captured_npcs)
@@ -404,7 +522,10 @@ class ScriptPlatformFeature:
         manifest = self.current_manifest()
         if not manifest:
             return
-        self.qqsg_data_panel.setVisible(manifest.id == 'com.searchcat.qqsg.official-task')
+        self.qqsg_data_panel.setVisible(manifest.id in {
+            'com.searchcat.qqsg.official-task',
+            'com.searchcat.qqsg.daily-tasks',
+        })
         self.plugin_title.setText(f'{manifest.name}  {manifest.version}')
         permissions = '、'.join(manifest.permissions) if manifest.permissions else '无额外权限声明'
         description = f'{manifest.description}\n权限：{permissions}'
@@ -417,16 +538,115 @@ class ScriptPlatformFeature:
             self.current_config = config
             self._rebuild_template_controls(manifest, config)
             self._update_qqsg_data_controls(manifest, config)
+            self._update_daily_task_controls(manifest, config)
+            self._update_leveling_controls(manifest, config)
         except (OSError, ValueError, json.JSONDecodeError) as error:
             self.current_config = {}
             self._rebuild_template_controls(manifest, {})
+            self._update_daily_task_controls(manifest, {})
+            self._update_leveling_controls(manifest, {})
             self._log(f'[配置错误] {error}')
-        if manifest.id == 'com.searchcat.qqsg.official-task' and not self.running:
-            self.auto_detect_game_windows(silent=True)
         self._update_start_enabled()
 
+    def _update_daily_task_controls(self, manifest: PluginManifest, config: dict):
+        """Synchronize the daily-task selector from the saved JSON profile."""
+        visible = manifest.id == 'com.searchcat.qqsg.daily-tasks'
+        self.daily_task_panel.setVisible(visible)
+        if not visible:
+            return
+        mode = str(config.get('task_mode', 'sequence')).strip().lower()
+        selected = str(config.get('single_task', 'gai_xia_xue_yi')).strip()
+        value = selected if mode in {'single', 'debug', 'one'} else 'sequence'
+        index = self.daily_task_combo.findData(value)
+        self.daily_task_combo.blockSignals(True)
+        self.daily_task_combo.setCurrentIndex(index if index >= 0 else 0)
+        self.daily_task_combo.blockSignals(False)
+        self.daily_task_status.setText(
+            '单任务模式：便于调试' if value != 'sequence' else '完整流程'
+        )
+
+    def _daily_task_selection_changed(self, _index: int):
+        """Persist the simple UI choice into the plugin's JSON profile."""
+        manifest = self.current_manifest()
+        if not manifest or manifest.id != 'com.searchcat.qqsg.daily-tasks':
+            return
+        value = self.daily_task_combo.currentData()
+        if not value:
+            return
+        config = self._read_config()
+        if value == 'sequence':
+            config['task_mode'] = 'sequence'
+            description = '完整流程'
+        else:
+            config['task_mode'] = 'single'
+            config['single_task'] = str(value)
+            description = f'单任务：{self.daily_task_combo.currentText()}'
+        try:
+            path = self.manager.save_config(manifest, config)
+        except OSError as error:
+            self._log(f'[日常任务模式保存失败] {error}')
+            return
+        self.current_config = config
+        self.daily_task_status.setText('单任务模式：便于调试' if value != 'sequence' else '完整流程')
+        self._log(f'[日常任务模式] 已切换为 {description}，配置已保存：{path}')
+
+    def _update_leveling_controls(self, manifest: PluginManifest, config: dict):
+        """Synchronize the level-1-to-50 debug selector."""
+        visible = manifest.id == 'com.searchcat.qqsg.alt-leveling'
+        self.leveling_panel.setVisible(visible)
+        self.leveling_region_panel.setVisible(visible)
+        if not visible:
+            return
+        mode = str(config.get('run_mode', 'full')).strip().lower()
+        selected = str(config.get('single_stage', 'level_1_10')).strip()
+        value = selected if mode == 'single_stage' else 'full'
+        index = self.leveling_combo.findData(value)
+        self.leveling_combo.blockSignals(True)
+        self.leveling_combo.setCurrentIndex(index if index >= 0 else 0)
+        self.leveling_combo.blockSignals(False)
+        profile = f'{config.get("country", "蜀国")}·{config.get("role_class", "游侠")}'
+        self.leveling_status.setText(
+            f'{"单阶段调试" if value != "full" else "完整流程"} · {profile}'
+        )
+
+    def _leveling_selection_changed(self, _index: int):
+        """Persist the level-stage debug choice in the plugin profile."""
+        manifest = self.current_manifest()
+        if not manifest or manifest.id != 'com.searchcat.qqsg.alt-leveling':
+            return
+        value = self.leveling_combo.currentData()
+        if not value:
+            return
+        config = self._read_config()
+        if value == 'full':
+            config['run_mode'] = 'full'
+            description = '完整 1-50 级流程'
+        else:
+            config['run_mode'] = 'single_stage'
+            config['single_stage'] = str(value)
+            description = f'单阶段：{self.leveling_combo.currentText()}'
+        try:
+            path = self.manager.save_config(manifest, config)
+        except OSError as error:
+            self._log(f'[小号起号模式保存失败] {error}')
+            return
+        self.current_config = config
+        profile = f'{config.get("country", "蜀国")}·{config.get("role_class", "游侠")}'
+        self.leveling_status.setText(
+            f'{"单阶段调试" if value != "full" else "完整流程"} · {profile}'
+        )
+        self._log(f'[小号起号模式] 已切换为 {description}，配置已保存：{path}')
+
+    def select_level_region(self):
+        self._select_qqsg_region(
+            'level_region', 'Select character level region', '等级',
+        )
+
     def _update_qqsg_data_controls(self, manifest: PluginManifest, config: dict):
-        visible = manifest.id == 'com.searchcat.qqsg.official-task'
+        visible = manifest.id in {
+            'com.searchcat.qqsg.official-task',
+            'com.searchcat.qqsg.daily-tasks',
+        }
         self.qqsg_data_panel.setVisible(visible)
         if visible:
             route_count = len(config.get('npc_routes', {})) if isinstance(config.get('npc_routes'), dict) else 0
@@ -509,7 +729,11 @@ class ScriptPlatformFeature:
 
     def _select_qqsg_region(self, config_key: str, window_title: str, label: str):
         manifest = self.current_manifest()
-        if not manifest or manifest.id != 'com.searchcat.qqsg.official-task':
+        if not manifest or manifest.id not in {
+            'com.searchcat.qqsg.official-task',
+            'com.searchcat.qqsg.daily-tasks',
+            'com.searchcat.qqsg.alt-leveling',
+        }:
             return
         if not self.target_window_info:
             QMessageBox.information(self.group_box, '请先绑定窗口', '请先绑定要运行脚本的游戏窗口。')
@@ -841,8 +1065,7 @@ class ScriptPlatformFeature:
         else:
             self.target_window_info = None
             self.log_display.clear()
-            self.preview_label.setPixmap(QPixmap())
-            self.preview_label.setText('脚本执行截图将在这里显示')
+            self.preview_label.clear_image('脚本执行截图将在这里显示')
 
     def _active_window_changed(self, index: int):
         if index < 0 or index >= len(self.target_windows):
@@ -856,8 +1079,7 @@ class ScriptPlatformFeature:
         if frame is not None:
             self._render_frame(frame)
         else:
-            self.preview_label.setPixmap(QPixmap())
-            self.preview_label.setText('该窗口尚无脚本截图')
+            self.preview_label.clear_image('该窗口尚无脚本截图')
         self._update_status_label()
 
     def remove_current_window(self):
@@ -882,11 +1104,8 @@ class ScriptPlatformFeature:
 
     def _update_start_enabled(self):
         manifest = self.current_manifest()
-        can_auto_detect = bool(
-            manifest and manifest.id == 'com.searchcat.qqsg.official-task'
-        )
         self.start_btn.setEnabled(
-            bool(manifest and (self.target_windows or can_auto_detect)) or self.running
+            bool(manifest and self.target_windows) or self.running
         )
 
     def _read_config(self) -> dict:
@@ -926,11 +1145,134 @@ class ScriptPlatformFeature:
             self.current_config = value
             self._rebuild_template_controls(manifest, value)
             self._update_qqsg_data_controls(manifest, value)
+            self._update_daily_task_controls(manifest, value)
+            self._update_leveling_controls(manifest, value)
             self._log(f'配置已保存：{path}')
             dialog.accept()
 
         buttons.accepted.connect(save_and_close)
         buttons.rejected.connect(dialog.reject)
+        dialog.exec_()
+
+    def show_parsed_maps(self):
+        """Display every map record parsed from the installed client package."""
+        saved = self.current_config.get('route_data_source', {}).get('game_directory', '')
+        installation = Path(saved) if saved else find_installation()
+        if not installation or not (installation / 'data' / 'objects.pkg').is_file():
+            selected = QFileDialog.getExistingDirectory(self.group_box, '选择 QQ 三国安装目录')
+            if not selected:
+                return
+            installation = Path(selected)
+        try:
+            package = QQSGPackage(installation / 'data' / 'objects.pkg')
+            catalog = parse_map_catalog(package.read('res/Txt/MapData.txt'))
+            terrain_entries = [name.replace('\\', '/').casefold()
+                               for name in package.list_entries('map/')
+                               if name.casefold().endswith('.map.srv')]
+            connection_candidates = package.connection_candidates()
+        except (OSError, ValueError, FileNotFoundError) as error:
+            QMessageBox.warning(self.group_box, '地图数据读取失败', str(error))
+            return
+        from feature.map_debug_dialog import MapDebugDialog
+
+        dialog = QDialog(self.group_box)
+        dialog.setWindowTitle(f'已解析地图数据 · {len(catalog)} 张')
+        dialog.resize(620, 560)
+        layout = QVBoxLayout(dialog)
+        layout.addWidget(QLabel(
+            f'来源：{installation / "data" / "objects.pkg"}\n'
+            f'已从客户端 MapData.txt 解析 {len(catalog)} 张地图；名称和 ID 以当前客户端为准。\n'
+            f'连接关系候选资源：{len(connection_candidates)} 个（仅按文件名筛选，需进一步解析内容）。'
+        ))
+        search = QLineEdit()
+        search.setPlaceholderText('筛选地图名称或 ID')
+        layout.addWidget(search)
+        listing = QListWidget()
+        rows = sorted(catalog.values(), key=lambda item: (int(item['id']), str(item['name'])))
+
+        def terrain_candidates(item):
+            normalized_name = str(item.get('name', '')).replace('·', '.')
+            override = MapDebugDialog.TERRAIN_ENTRY_OVERRIDES.get(normalized_name)
+            resource = str(item.get('resource', '')).replace('\\', '/').casefold()
+            resource_name = resource.rsplit('/', 1)[-1]
+            # MapData normally stores the render resource as ``NN-N.map`` while
+            # the walkable geometry is the sibling ``NN-N.map.srv``.  Resolve
+            # that exact basename and verify it exists in the package; never
+            # infer a terrain file from the numeric catalog ID alone.
+            candidates = []
+            if override:
+                candidates.append(override.casefold())
+            if resource_name.endswith('.map'):
+                candidates.append(f'{resource_name}.srv')
+            elif resource_name.endswith('.map.srv'):
+                candidates.append(resource_name)
+            if not candidates:
+                return []
+            return [entry for entry in terrain_entries
+                    if entry.rsplit('/', 1)[-1] in set(candidates)]
+
+        for item in rows:
+            terrain = terrain_candidates(item)
+            state = '可读取地形' if terrain else '仅目录记录'
+            row = QListWidgetItem(f"ID {item['id']:>4}  ·  {item['name']}  ·  {state}")
+            row.setData(Qt.UserRole, {**item, 'terrain_entries': terrain})
+            row.setToolTip('\n'.join(terrain[:8]) if terrain else '未找到对应 .map.srv 文件')
+            listing.addItem(row)
+        layout.addWidget(listing, 1)
+
+        def filter_rows(value):
+            query = str(value or '').strip().casefold()
+            for index in range(listing.count()):
+                item = listing.item(index)
+                data = item.data(Qt.UserRole) or {}
+                haystack = f"{data.get('id', '')} {data.get('name', '')}".casefold()
+                item.setHidden(bool(query and query not in haystack))
+
+        search.textChanged.connect(filter_rows)
+        def open_selected(item):
+            data = item.data(Qt.UserRole) or {}
+            entries = data.get('terrain_entries', [])
+            if not entries:
+                QMessageBox.information(dialog, '没有地形文件', '该地图只有目录记录，未找到可打开的 .map.srv 文件。')
+                return
+            dialog.accept()
+            self.open_map_debug(data.get('name'), data.get('id'), entries[0])
+
+        listing.itemDoubleClicked.connect(open_selected)
+        export_btn = QPushButton('导出地图清单')
+
+        def export_maps():
+            path, _ = QFileDialog.getSaveFileName(
+                dialog, '导出地图清单', 'qqsg_maps.json', 'JSON 文件 (*.json)'
+            )
+            if not path:
+                return
+            payload = []
+            for item in rows:
+                terrain = terrain_candidates(item)
+                payload.append({
+                    'id': item['id'],
+                    'name': item['name'],
+                    'terrain_available': bool(terrain),
+                    'terrain_entries': terrain,
+                })
+            payload = {
+                'maps': payload,
+                'connection_candidate_entries': connection_candidates,
+            }
+            try:
+                Path(path).write_text(
+                    json.dumps(payload, ensure_ascii=False, indent=2), encoding='utf-8'
+                )
+                QMessageBox.information(dialog, '导出完成', f'已导出 {len(payload["maps"])} 张地图。')
+            except OSError as error:
+                QMessageBox.warning(dialog, '导出失败', str(error))
+
+        export_btn.clicked.connect(export_maps)
+        buttons = QDialogButtonBox(QDialogButtonBox.Close)
+        buttons.rejected.connect(dialog.reject)
+        layout.addWidget(export_btn)
+        layout.addWidget(buttons)
         dialog.exec_()
 
     def toggle(self):
@@ -940,8 +1282,6 @@ class ScriptPlatformFeature:
         manifest = self.current_manifest()
         if not manifest:
             return
-        if manifest.id == 'com.searchcat.qqsg.official-task' and not self.running:
-            self.auto_detect_game_windows(silent=True)
         if not self.target_windows:
             QMessageBox.information(
                 self.group_box, '未找到游戏窗口',
@@ -1117,9 +1457,7 @@ class ScriptPlatformFeature:
         self._render_frame(qt_image)
 
     def _render_frame(self, qt_image: QImage):
-        self.preview_label.setPixmap(QPixmap.fromImage(qt_image).scaled(
-            self.preview_label.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation,
-        ))
+        self.preview_label.show_image(qt_image)
 
     def _update_status_label(self):
         active_id = self.target_window_info.get('id') if self.target_window_info else None

@@ -1,0 +1,174 @@
+{
+  "type": "object",
+  "properties": {
+    "country": {
+      "type": "string",
+      "title": "国家",
+      "enum": ["蜀国", "魏国", "吴国"],
+      "default": "蜀国"
+    },
+    "role_class": {
+      "type": "string",
+      "title": "角色职业",
+      "enum": ["游侠", "剑侍", "豪杰", "阴阳士", "仙术士"],
+      "default": "游侠"
+    },
+    "client_first": {
+      "type": "boolean",
+      "title": "以当前客户端任务栏为准（不采用旧攻略路线）",
+      "default": true
+    },
+    "run_mode": {
+      "type": "string",
+      "title": "运行模式（full=1-50，single_stage=单阶段）",
+      "enum": ["full", "single_stage"],
+      "default": "full"
+    },
+    "single_stage": {
+      "type": "string",
+      "title": "单阶段调试目标",
+      "enum": ["level_1_10", "level_11_20", "level_21_30", "level_31_40", "level_41_50"],
+      "default": "level_1_10"
+    },
+    "start_level": {
+      "type": "integer",
+      "title": "起始等级（无法 OCR 时使用）",
+      "minimum": 1,
+      "maximum": 50,
+      "default": 1
+    },
+    "target_level": {
+      "type": "integer",
+      "title": "目标等级",
+      "minimum": 1,
+      "maximum": 50,
+      "default": 50
+    },
+    "resume_progress": {
+      "type": "boolean",
+      "title": "启动时继续上次断点",
+      "default": true
+    },
+    "reset_progress": {
+      "type": "boolean",
+      "title": "启动时清除旧断点（需要时手动改回 false）",
+      "default": false
+    },
+    "task_region": {
+      "type": "array",
+      "title": "任务栏区域 [x,y,w,h]",
+      "default": [520, 70, 270, 430]
+    },
+    "level_region": {
+      "type": "array",
+      "title": "等级区域 [x,y,w,h]（客户区坐标）",
+      "default": [0, 0, 220, 90]
+    },
+    "ocr_confidence": {
+      "type": "number",
+      "title": "OCR 最低置信度",
+      "minimum": 0.1,
+      "maximum": 1,
+      "default": 0.4
+    },
+    "npc_keywords": {
+      "type": "array",
+      "title": "任务栏 NPC 关键词（为空时使用 NPC 行）",
+      "default": []
+    },
+    "task_keywords": {
+      "type": "array",
+      "title": "任务文本关键词",
+      "default": ["任务", "主线", "新手", "引导"]
+    },
+    "task_action_keys": {
+      "type": "array",
+      "title": "任务进行中的循环按键（游侠可配置技能键）",
+      "default": ["a"]
+    },
+    "task_action_interval": {
+      "type": "number",
+      "title": "任务动作循环间隔秒数",
+      "minimum": 0.2,
+      "maximum": 5,
+      "default": 0.8
+    },
+    "task_action_keys_per_cycle": {
+      "type": "integer",
+      "title": "每轮任务动作按键次数",
+      "minimum": 1,
+      "maximum": 20,
+      "default": 3
+    },
+    "dialog_enter_count": {
+      "type": "integer",
+      "title": "每次对话连续回车次数",
+      "minimum": 1,
+      "maximum": 20,
+      "default": 8
+    },
+    "dialog_key_interval": {
+      "type": "number",
+      "title": "对话按键间隔秒数",
+      "minimum": 0.1,
+      "maximum": 3,
+      "default": 0.3
+    },
+    "auto_navigation_wait": {
+      "type": "number",
+      "title": "点击任务 NPC 后等待自动寻路秒数",
+      "minimum": 1,
+      "maximum": 180,
+      "default": 8
+    },
+    "task_scan_interval": {
+      "type": "number",
+      "title": "任务栏扫描间隔秒数",
+      "minimum": 0.3,
+      "maximum": 10,
+      "default": 1.2
+    },
+    "recovery_interval": {
+      "type": "number",
+      "title": "无进展后的脱困等待秒数",
+      "minimum": 0.2,
+      "maximum": 10,
+      "default": 1
+    },
+    "probe_nearby_npc": {
+      "type": "boolean",
+      "title": "任务栏没有 NPC 时尝试附近 NPC 对话",
+      "default": true
+    },
+    "stage_plan": {
+      "type": "array",
+      "title": "等级阶段计划",
+      "default": [
+        {"id": "level_1_10", "min_level": 1, "max_level": 10, "label": "新手与主线"},
+        {"id": "level_11_20", "min_level": 11, "max_level": 20, "label": "主线任务"},
+        {"id": "level_21_30", "min_level": 21, "max_level": 30, "label": "主线与区域任务"},
+        {"id": "level_31_40", "min_level": 31, "max_level": 40, "label": "中期任务"},
+        {"id": "level_41_50", "min_level": 41, "max_level": 50, "label": "后期任务"}
+      ]
+    },
+    "max_task_cycles": {
+      "type": "integer",
+      "title": "单阶段最多循环次数（0=直到完成）",
+      "minimum": 0,
+      "maximum": 10000,
+      "default": 0
+    },
+    "dry_run_max_cycles": {
+      "type": "integer",
+      "title": "模拟运行最多循环次数",
+      "minimum": 1,
+      "maximum": 100,
+      "default": 3
+    },
+    "dry_run": {
+      "type": "boolean",
+      "title": "模拟运行",
+      "default": true
+    }
+  }
+}

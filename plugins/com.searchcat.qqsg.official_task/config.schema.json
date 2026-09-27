@@ -1,6 +1,81 @@
 {
   "type": "object",
   "properties": {
+    "task_mode": {
+      "type": "string",
+      "title": "任务模式",
+      "enum": ["official", "daily", "ju_xiao_lian", "transport"],
+      "default": "official"
+    },
+    "task_sequence": {
+      "type": "array",
+      "title": "日常任务顺序",
+      "default": ["ju_xiao_lian", "transport"]
+    },
+    "answer_region": {
+      "type": "array",
+      "title": "举孝廉答题窗口区域 [x,y,w,h]",
+      "default": [30, 70, 470, 430]
+    },
+    "question_bank": {
+      "type": "array",
+      "title": "举孝廉题库 [{q,ans}]",
+      "default": []
+    },
+    "answer_ocr_confidence": {
+      "type": "number",
+      "title": "答题 OCR 最低置信度",
+      "minimum": 0.1,
+      "maximum": 1,
+      "default": 0.45
+    },
+    "answer_match_threshold": {
+      "type": "number",
+      "title": "题库匹配阈值",
+      "minimum": 0.5,
+      "maximum": 1,
+      "default": 0.72
+    },
+    "answer_auto_click_confidence": {
+      "type": "number",
+      "title": "自动点击最低置信度",
+      "minimum": 0.5,
+      "maximum": 1,
+      "default": 0.72
+    },
+    "answer_max_questions": {
+      "type": "integer",
+      "title": "单轮最多答题数",
+      "minimum": 1,
+      "maximum": 100,
+      "default": 20
+    },
+    "answer_poll_interval": {
+      "type": "number",
+      "title": "答题窗口轮询间隔秒数",
+      "minimum": 0.2,
+      "maximum": 5,
+      "default": 0.8
+    },
+    "answer_result_wait": {
+      "type": "number",
+      "title": "提交答案后等待反馈秒数",
+      "minimum": 0.2,
+      "maximum": 5,
+      "default": 0.8
+    },
+    "transport_keyword": {
+      "type": "string",
+      "title": "运送任务关键词",
+      "default": "运送"
+    },
+    "transport_max_cycles": {
+      "type": "integer",
+      "title": "运送物资最多任务轮数",
+      "minimum": 1,
+      "maximum": 100,
+      "default": 20
+    },
     "terrain_test_enabled": {
       "type": "boolean",
       "title": "仅执行地图调试中载入的实验路线",
