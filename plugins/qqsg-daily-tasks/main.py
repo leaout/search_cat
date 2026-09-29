@@ -26,6 +26,7 @@ TASK_ALIASES = {
     'transport': 'transport',
     '运送物资': 'transport',
 }
+WATERFALL_MAP_KEYWORDS = ('瀑布密道', '瀑布地图')
 
 
 def _wait(context, seconds=0.8):
@@ -165,6 +166,14 @@ def _normalize_map_name(value: str) -> str:
     return re.sub(r'[^0-9A-Za-z\u4e00-\u9fff]', '', str(value or '')).lower()
 
 
+def _is_waterfall_map(state: dict | None) -> bool:
+    """Return whether a mini-map OCR result is the special waterfall map."""
+    if not isinstance(state, dict):
+        return False
+    map_name = _normalize_map_name(state.get('map', ''))
+    return any(_normalize_map_name(keyword) in map_name for keyword in WATERFALL_MAP_KEYWORDS)
+
+
 def _scan_minimap(context):
     """Read the current integer coordinate from the configured mini-map crop."""
     region = context.config.get('minimap_region', [540, 0, 250, 90])
@@ -200,6 +209,233 @@ def _scan_minimap(context):
     raw_text = ' '.join(str(line.get('text', '')) for line in all_lines)
     context.log(f'小地图 OCR：{raw_text or "<空>"}；未解析出坐标', 'warning')
     return None
+
+
+def _navigate_waterfall(context) -> bool:
+    """Leave 瀑布密道 through the water-buffalo and two-cloud-ladder route.
+
+    The game does not expose this route to its task-link navigator.  The
+    lower route is therefore handled as a small state machine:
+
+    ``start ledge -> wait/jump onto buffalo -> ride right -> wait/jump onto
+    cloud ladder 1 -> climb -> wait/jump onto cloud ladder 2 -> climb``.
+
+    The moving objects are not reliably distinguishable by mini-map OCR, so
+    each boarding phase uses position feedback and a conservative timed retry.
+    All timings and coordinate thresholds are configurable for client-version
+    differences.
+    """
+    state = _scan_minimap(context)
+    if not _is_waterfall_map(state):
+        return False
+    if context.dry_run:
+        context.log('模拟运行：已识别瀑布密道，跳跃路线不发送真实键鼠输入', 'warning')
+        return True
+
+    _activate(context)
+    direction = str(context.config.get('waterfall_exit_direction', 'right')).lower()
+    if direction not in {'left', 'right'}:
+        direction = 'right'
+    timeout = max(30.0, float(context.config.get('waterfall_route_timeout', 240)))
+    scan_interval = max(0.25, float(context.config.get('waterfall_scan_interval', 0.75)))
+    walk_duration = max(0.08, float(context.config.get('waterfall_walk_duration', 0.28)))
+    lead_time = max(0.0, float(context.config.get('waterfall_jump_lead', 0.10)))
+    jump_hold = max(0.05, float(context.config.get('waterfall_jump_hold', 0.14)))
+    follow_time = max(0.0, float(context.config.get('waterfall_jump_follow', 0.22)))
+    stagnant_limit = max(2, int(context.config.get('waterfall_stagnant_scans', 4)))
+    lower_y = int(context.config.get('waterfall_lower_y', 17))
+    board_x = int(context.config.get(
+        'waterfall_board_x', context.config.get('waterfall_drop_x', 4)
+    ))
+    buffalo_right_x = int(context.config.get('waterfall_buffalo_right_x', 48))
+    buffalo_wait = max(3.0, float(context.config.get('waterfall_buffalo_wait', 30)))
+    buffalo_jump_interval = max(0.35, float(context.config.get('waterfall_buffalo_jump_interval', 1.2)))
+    buffalo_ride_timeout = max(5.0, float(context.config.get('waterfall_buffalo_ride_timeout', 45)))
+    ladder_wait = max(3.0, float(context.config.get('waterfall_ladder_wait', 25)))
+    ladder_jump_interval = max(0.35, float(context.config.get('waterfall_ladder_jump_interval', 1.0)))
+    ladder_ride_seconds = max(0.5, float(context.config.get('waterfall_ladder_ride_seconds', 3.5)))
+    ladder_section_timeout = max(5.0, float(context.config.get('waterfall_ladder_section_timeout', 35)))
+    min_rise = max(1, int(context.config.get('waterfall_ladder_min_rise', 1)))
+    ladder_move_key = str(context.config.get('waterfall_ladder_move_key', '')).strip().lower()
+    if ladder_move_key not in {'', 'up'}:
+        ladder_move_key = ''
+    started = time.monotonic()
+
+    def current_state():
+        state = _scan_minimap(context)
+        if state and not _is_waterfall_map(state):
+            context.log(f'已离开瀑布密道，当前地图：{state.get("map") or "未识别"}')
+            return None, True
+        position = tuple(state['position']) if state and state.get('position') else None
+        return position, False
+
+    def elapsed() -> float:
+        return time.monotonic() - started
+
+    context.log(
+        f'已进入瀑布密道：下层路线，先等水牛到位，再上两节云梯；出口方向 {direction}'
+    )
+
+    # Phase 1: the entry point is normally on the small upper-left ledge.
+    # Drop to the lower water route before waiting for the buffalo.  If the
+    # current coordinate is already on the lower level, this phase is skipped.
+    position, exited = current_state()
+    if exited:
+        return True
+    if position and position[1] < lower_y:
+        context.log(f'当前在上层 {position}，先前往下层入口（目标 X {board_x}）')
+        drop_started = time.monotonic()
+        while elapsed() < timeout and time.monotonic() - drop_started < buffalo_wait:
+            position, exited = current_state()
+            if exited:
+                return True
+            if position and ((direction == 'right' and position[0] >= board_x)
+                             or (direction == 'left' and position[0] <= board_x)):
+                break
+            context.keyboard.hold_combo(direction, duration=walk_duration, mode='foreground')
+            _wait(context, scan_interval)
+        position, exited = current_state()
+        if exited:
+            return True
+        context.log('到达上层边缘，按空格跳入水牛所在下层')
+        for _ in range(6):
+            context.keyboard.directional_jump(
+                direction,
+                lead_time=lead_time,
+                jump_hold=jump_hold,
+                follow_time=follow_time,
+                mode='foreground',
+            )
+            _wait(context, scan_interval)
+            position, exited = current_state()
+            if exited:
+                return True
+            if position and position[1] >= lower_y:
+                context.log(f'已进入下层水路：当前位置 {position}')
+                break
+        else:
+            raise RuntimeError('无法从入口跳入水牛所在下层，请检查 waterfall_lower_y')
+
+    # Phase 1b: move from the lower entry to the buffalo boarding point.
+    while elapsed() < timeout:
+        position, exited = current_state()
+        if exited:
+            return True
+        if position and ((direction == 'right' and position[0] >= board_x)
+                         or (direction == 'left' and position[0] <= board_x)):
+            break
+        context.log(f'前往水牛上车点：当前位置 {position or "未知"}，向 {direction} 移动')
+        context.keyboard.hold_combo(direction, duration=walk_duration, mode='foreground')
+        _wait(context, scan_interval)
+    else:
+        raise RuntimeError('瀑布密道无法到达水牛上车点')
+
+    # Phase 2: wait for the moving buffalo.  Do not continuously walk: the
+    # character must stay on the boarding spot and jump only as it arrives.
+    context.log('已到水牛上车点，等待水牛靠近；不持续发送方向键')
+    board_started = time.monotonic()
+    previous_x = None
+    while time.monotonic() - board_started < buffalo_wait and elapsed() < timeout:
+        position, exited = current_state()
+        if exited:
+            return True
+        if position:
+            if previous_x is not None and abs(position[0] - previous_x) >= 1:
+                context.log(f'检测到角色开始随水牛移动：当前位置 {position}')
+                break
+            previous_x = position[0]
+        context.log('等待水牛到达上车位置，尝试原地跳跃')
+        context.keyboard.press('space', mode='foreground')
+        _wait(context, buffalo_jump_interval)
+    else:
+        raise RuntimeError('等待水牛超时，请确认角色位于水牛上车点')
+
+    # Phase 3: ride the buffalo to the far right.  Direction is only used as
+    # a tiny recovery nudge when the ride has visibly stopped.
+    context.log(f'已上水牛，等待其移动到最右侧（目标 X {buffalo_right_x}）')
+    ride_started = time.monotonic()
+    last_position = None
+    stagnant = 0
+    while time.monotonic() - ride_started < buffalo_ride_timeout and elapsed() < timeout:
+        position, exited = current_state()
+        if exited:
+            return True
+        if position:
+            if ((direction == 'right' and position[0] >= buffalo_right_x)
+                    or (direction == 'left' and position[0] <= buffalo_right_x)):
+                context.log(f'水牛已到最右侧附近：当前位置 {position}')
+                break
+            if position == last_position:
+                stagnant += 1
+            else:
+                stagnant = 0
+            last_position = position
+        if stagnant >= stagnant_limit:
+            context.log('水牛移动暂时停滞，发送短方向键尝试恢复', 'warning')
+            context.keyboard.hold_combo(direction, duration=walk_duration, mode='foreground')
+            stagnant = 0
+        _wait(context, scan_interval)
+    else:
+        raise RuntimeError('水牛未能到达最右侧，请检查上车时机或 buffalo_right_x')
+
+    # Phase 4: wait for the first cloud ladder to appear, then jump and ride
+    # upward.  The ladder is a moving platform, so each section has retries.
+    for section in (1, 2):
+        context.log(f'等待第 {section} 节云梯出现')
+        ladder_wait_started = time.monotonic()
+        while time.monotonic() - ladder_wait_started < ladder_wait and elapsed() < timeout:
+            position, exited = current_state()
+            if exited:
+                return True
+            context.keyboard.press('space', mode='foreground')
+            _wait(context, ladder_jump_interval)
+            # A jump that changes the vertical grid is enough evidence that
+            # the character caught the ladder; climbing is handled below.
+            next_position, exited = current_state()
+            if exited:
+                return True
+            if position and next_position and next_position[1] <= position[1] - min_rise:
+                context.log(f'已跳上第 {section} 节云梯：{position} → {next_position}')
+                break
+        else:
+            raise RuntimeError(f'第 {section} 节云梯等待超时，请确认云梯出现位置')
+
+        climb_started = time.monotonic()
+        climb_origin = next_position
+        while time.monotonic() - climb_started < ladder_section_timeout and elapsed() < timeout:
+            if ladder_move_key:
+                context.keyboard.hold_combo(
+                    ladder_move_key, duration=ladder_ride_seconds, mode='foreground'
+                )
+            else:
+                context.log(f'已跳上第 {section} 节云梯，等待云梯自动上行')
+                _wait(context, ladder_ride_seconds)
+            _wait(context, scan_interval)
+            position, exited = current_state()
+            if exited:
+                return True
+            if position and climb_origin and position[1] <= climb_origin[1] - min_rise:
+                context.log(f'第 {section} 节云梯上升：{climb_origin} → {position}')
+                break
+            context.log(f'第 {section} 节云梯尚未上升，重新跳跃尝试：当前位置 {position or "未知"}', 'warning')
+            context.keyboard.press('space', mode='foreground')
+            _wait(context, ladder_jump_interval)
+        else:
+            raise RuntimeError(f'第 {section} 节云梯无法上升，请检查 ladder_ride_seconds')
+
+    # Phase 5: after the second ladder, keep a short forward-jump loop until
+    # the map changes to the normal transport destination map.
+    context.log('两节云梯均已通过，继续向出口跳跃')
+    while elapsed() < timeout:
+        position, exited = current_state()
+        if exited:
+            return True
+        context.keyboard.hold_combo(direction, duration=walk_duration, mode='foreground')
+        context.keyboard.press('space', mode='foreground')
+        _wait(context, scan_interval)
+    raise RuntimeError(
+        f'瀑布密道超过 {timeout:.0f} 秒仍未离开，请检查出口方向或各阶段参数'
+    )
 
 
 def _navigate_to_npc(context, npc_name: str):
@@ -409,8 +645,29 @@ def _run_transport(context):
                     raise RuntimeError('游戏窗口激活失败')
                 context.mouse.click(click_x, click_y, mode='foreground', coordinate_space='client')
                 context.mouse.move(10, 10, coordinate_space='client')
-            _wait(context, float(context.config.get('transport_navigation_wait', 8)))
-            context.log('自动寻路等待结束，开始提交运送任务')
+            navigation_wait = float(context.config.get('transport_navigation_wait', 8))
+            waterfall_detected = False
+            if not context.dry_run:
+                # The task link works on ordinary maps but is intentionally
+                # replaced by the manual jump route in 瀑布密道.
+                detect_until = time.monotonic() + max(1.0, navigation_wait)
+                while time.monotonic() < detect_until:
+                    state = _scan_minimap(context)
+                    if _is_waterfall_map(state):
+                        waterfall_detected = _navigate_waterfall(context)
+                        break
+                    _wait(context, min(0.75, max(0.1, detect_until - time.monotonic())))
+            else:
+                _wait(context, navigation_wait)
+            if waterfall_detected:
+                # After leaving the special map, click the task NPC again so
+                # the game's normal navigation can resume on the destination
+                # map before we open the dialogue.
+                context.log('瀑布密道已通过，重新触发任务栏 NPC 寻路')
+                _click_task_npc(context, ('NPC', 'NＰC'))
+                _wait(context, navigation_wait)
+            else:
+                context.log('自动寻路等待结束，开始提交运送任务')
             if not context.dry_run:
                 context.keyboard.press('g', mode='foreground')
             _wait(context, 0.8)

@@ -1,0 +1,170 @@
+{
+  "type": "object",
+  "properties": {
+    "target_line": {
+      "type": "integer",
+      "title": "目标线路",
+      "minimum": 1,
+      "maximum": 99,
+      "default": 14
+    },
+    "switch_line_enabled": {
+      "type": "boolean",
+      "title": "启动前自动换线",
+      "default": true
+    },
+    "line_switch_wait": {
+      "type": "number",
+      "title": "换线后等待秒数",
+      "minimum": 1,
+      "maximum": 30,
+      "default": 3
+    },
+    "line_switch_scan_wait": {
+      "type": "number",
+      "title": "换线界面等待秒数",
+      "minimum": 0.2,
+      "maximum": 5,
+      "default": 0.8
+    },
+    "mining_mode": {
+      "type": "string",
+      "title": "挖矿方式",
+      "enum": ["patrol_g", "template"],
+      "default": "patrol_g"
+    },
+    "travel_actions": {
+      "type": "array",
+      "title": "前往矿区动作 [{direction,seconds,jump}]",
+      "default": []
+    },
+    "travel_action_pause": {
+      "type": "number",
+      "title": "前往动作之间暂停秒数",
+      "minimum": 0,
+      "maximum": 5,
+      "default": 0.3
+    },
+    "skip_travel": {
+      "type": "boolean",
+      "title": "跳过前往矿区（已在矿区时使用）",
+      "default": false
+    },
+    "mine_entry_wait": {
+      "type": "number",
+      "title": "进入矿区后的等待秒数",
+      "minimum": 0,
+      "maximum": 30,
+      "default": 2
+    },
+    "patrol_route": {
+      "type": "array",
+      "title": "矿区巡逻动作 [{direction,seconds,jump,g_count}]",
+      "default": []
+    },
+    "patrol_loops": {
+      "type": "integer",
+      "title": "巡逻轮数（0=持续运行）",
+      "minimum": 0,
+      "maximum": 10000,
+      "default": 0
+    },
+    "g_count": {
+      "type": "integer",
+      "title": "每个巡逻点按 G 次数",
+      "minimum": 1,
+      "maximum": 10,
+      "default": 1
+    },
+    "g_interval": {
+      "type": "number",
+      "title": "G 按键间隔秒数",
+      "minimum": 0.1,
+      "maximum": 10,
+      "default": 0.8
+    },
+    "refresh_wait_enabled": {
+      "type": "boolean",
+      "title": "每轮巡逻后等待整点刷新",
+      "default": true
+    },
+    "refresh_wait_mode": {
+      "type": "string",
+      "title": "整点等待方式",
+      "enum": ["next_hour", "interval"],
+      "default": "next_hour"
+    },
+    "refresh_interval": {
+      "type": "number",
+      "title": "间隔刷新秒数（interval 模式）",
+      "minimum": 60,
+      "maximum": 86400,
+      "default": 3600
+    },
+    "use_templates": {
+      "type": "boolean",
+      "title": "使用矿点模板识别",
+      "default": false
+    },
+    "template_threshold": {
+      "type": "number",
+      "title": "矿点模板匹配阈值",
+      "minimum": 0.5,
+      "maximum": 0.99,
+      "default": 0.82
+    },
+    "mining_region": {
+      "type": "array",
+      "title": "矿点识别区域 [x,y,width,height]（空=整个客户区）",
+      "default": []
+    },
+    "click_coordinate_space": {
+      "type": "string",
+      "title": "点击坐标空间",
+      "enum": ["client", "window"],
+      "default": "client"
+    },
+    "mine_button": {
+      "type": "string",
+      "title": "采集鼠标按键",
+      "enum": ["left", "right"],
+      "default": "right"
+    },
+    "mine_interval": {
+      "type": "number",
+      "title": "每次采集后的等待秒数",
+      "minimum": 0.5,
+      "maximum": 120,
+      "default": 8
+    },
+    "max_cycles": {
+      "type": "integer",
+      "title": "每个窗口最多采集次数（0=持续运行）",
+      "minimum": 0,
+      "maximum": 10000,
+      "default": 30
+    },
+    "max_misses": {
+      "type": "integer",
+      "title": "连续找不到矿点次数",
+      "minimum": 1,
+      "maximum": 30,
+      "default": 3
+    },
+    "allow_coordinate_fallback": {
+      "type": "boolean",
+      "title": "允许使用备用固定坐标（默认关闭）",
+      "default": false
+    },
+    "fallback_points": {
+      "type": "array",
+      "title": "备用采集点 [[x,y], ...]（客户区坐标）",
+      "default": []
+    },
+    "dry_run": {
+      "type": "boolean",
+      "title": "模拟运行",
+      "default": true
+    }
+  }
+}

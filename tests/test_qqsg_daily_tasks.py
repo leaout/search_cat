@@ -41,6 +41,10 @@ class QQSGDailyTaskTests(unittest.TestCase):
         self.assertTrue(MODULE._has_completion_marker('垓下学艺[已完成]'))
         self.assertFalse(MODULE._has_completion_marker('灭鼠靖仓 2/5'))
 
+    def test_waterfall_map_detection(self):
+        self.assertTrue(MODULE._is_waterfall_map({'map': '瀑布·密道', 'position': (1, 14)}))
+        self.assertFalse(MODULE._is_waterfall_map({'map': '成都·子城', 'position': (1, 14)}))
+
 
 if __name__ == '__main__':
     unittest.main()

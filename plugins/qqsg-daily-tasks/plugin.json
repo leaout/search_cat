@@ -1,7 +1,7 @@
 {
   "id": "com.searchcat.qqsg.daily-tasks",
   "name": "QQ三国日常任务",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "sdk_version": "1",
   "entry": "main.py",
   "description": "独立执行垓下学艺、灭鼠靖仓、举孝廉答题和运送物资；支持完整流程或单任务调试。",
