@@ -77,6 +77,9 @@ class AutomationHost:
             'window.current': self._window_current,
             'window.is_alive': self._window_is_alive,
             'window.activate': self._window_activate,
+            'window.gathering_fatigue': self._window_gathering_fatigue,
+            'window.navigate_by_code': self._window_navigate_by_code,
+            'window.navigation_state': self._window_navigation_state,
             'capture.window': self._capture_window,
             'vision.find_image': self._find_image,
             'vision.get_color': self._get_color,
@@ -96,9 +99,13 @@ class AutomationHost:
         }
         if method not in handlers:
             raise ValueError(f'不支持的自动化方法: {method}')
-        permission = self._required_permission(method, params)
-        if permission and permission not in self.permissions:
-            raise PermissionError(f'插件未声明权限: {permission}')
+        permissions = (('window.bind', 'screen.capture', 'mouse.foreground', 'keyboard.foreground')
+                       if method in {'window.gathering_fatigue', 'window.navigate_by_code'} else
+                       ('window.bind', 'screen.capture') if method == 'window.navigation_state' else
+                       (self._required_permission(method, params),))
+        for permission in permissions:
+            if permission and permission not in self.permissions:
+                raise PermissionError(f'插件未声明权限: {permission}')
         handler = handlers[method]
         if self._uses_foreground_input(method, params):
             return self.input_coordinator.run(
@@ -108,7 +115,8 @@ class AutomationHost:
 
     @staticmethod
     def _uses_foreground_input(method: str, params: dict[str, Any]) -> bool:
-        if method == 'window.activate' or method == 'mouse.move':
+        if method in {'window.activate', 'window.gathering_fatigue', 'window.navigate_by_code',
+                      'window.navigation_state', 'mouse.move'}:
             return True
         if method.startswith('mouse.') or method.startswith('keyboard.'):
             return str(params.get('mode', 'foreground')) != 'background'
@@ -126,6 +134,12 @@ class AutomationHost:
             _, live_pid = win32process.GetWindowThreadProcessId(window.hwnd)
             if int(live_pid) != int(window.pid):
                 raise RuntimeError('目标窗口句柄已被其他进程复用，已拒绝发送键鼠输入')
+
+    def _validate_bound_window_foreground(self) -> None:
+        """Reject screen-based observations after a user/app steals focus."""
+        self._validate_bound_window_identity()
+        if win32gui.GetForegroundWindow() != self._current_window().hwnd:
+            raise RuntimeError('绑定窗口不在前台，拒绝采信疲劳提示截图')
 
     @staticmethod
     def _required_permission(method: str, params: dict[str, Any]) -> str | None:
@@ -203,7 +217,20 @@ class AutomationHost:
             raise RuntimeError('无法激活绑定窗口，请确认游戏窗口未被系统限制或关闭')
         return {'active': True, 'dry_run': self.dry_run}
 
-    def _capture_window(self, params: dict[str, Any]) -> dict[str, Any]:
+    def _window_gathering_fatigue(self, _params: dict[str, Any]) -> dict[str, Any]:
+        """Read F1 gathering fatigue as one serialized foreground transaction."""
+        from automation.qqsg_status import read_gathering_fatigue
+        return read_gathering_fatigue(self)
+
+    def _window_navigate_by_code(self, params: dict[str, Any]) -> dict[str, Any]:
+        from automation.qqsg_code_navigation import start_code_navigation
+        return start_code_navigation(self, params)
+
+    def _window_navigation_state(self, params: dict[str, Any]) -> dict[str, Any] | None:
+        from automation.qqsg_code_navigation import read_navigation_state
+        return read_navigation_state(self, params.get('map_names'))
+
+    def _capture_window(self, params: dict[str, Any], *, temporary: bool = False) -> dict[str, Any]:
         window = self._current_window()
         mode = str(params.get('mode', 'auto'))
         if not win32gui.IsWindow(window.hwnd):
@@ -240,7 +267,7 @@ class AutomationHost:
             image = image[y:y + region_height, x:x + region_width].copy()
         frame_id = uuid.uuid4().hex
         self.frames[frame_id] = image
-        if len(self.frames) > self.MAX_CACHED_FRAMES:
+        if not temporary and len(self.frames) > self.MAX_CACHED_FRAMES:
             self.frames.pop(next(iter(self.frames)))
         frame = FrameReference(
             id=frame_id,
@@ -340,7 +367,8 @@ class AutomationHost:
             prepared = cv2.copyMakeBorder(prepared, padding, padding, padding, padding,
                                           cv2.BORDER_CONSTANT,
                                           value=(255, 255, 255) if variant == 'minimap_yellow' else (0, 0, 0))
-        result = self._ocr_engine.do_ocr_ext(prepared)
+        result = (self._ocr_engine.do_ocr_line(prepared) if params.get('single_line', False)
+                  else self._ocr_engine.do_ocr_ext(prepared))
         lines = []
         for item in result or []:
             if len(item) < 2 or len(item[1]) < 2:
@@ -616,7 +644,21 @@ class AutomationHost:
 
     def _storage_write_json(self, params: dict[str, Any]) -> dict[str, Any]:
         import json
+        import os
+        import tempfile
         path = self._data_path(str(params['path']))
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(params.get('value'), ensure_ascii=False, indent=2), encoding='utf-8')
+        # Purchase checkpoints must remain valid if the process stops mid-write.
+        # Atomic replacement also protects other plugin JSON state from truncation.
+        payload = json.dumps(params.get('value'), ensure_ascii=False, indent=2)
+        descriptor, temporary = tempfile.mkstemp(prefix=f'.{path.name}.', suffix='.tmp', dir=path.parent)
+        try:
+            with os.fdopen(descriptor, 'w', encoding='utf-8') as file:
+                file.write(payload)
+                file.flush()
+                os.fsync(file.fileno())
+            os.replace(temporary, path)
+        finally:
+            if os.path.exists(temporary):
+                os.unlink(temporary)
         return {'path': str(path)}

@@ -1,6 +1,61 @@
 {
   "type": "object",
   "properties": {
+    "fatigue_monitor_enabled": {
+      "type": "boolean", "title": "自动采集疲劳监控（F1 自动定位，无需框选）", "default": true
+    },
+    "fatigue_recheck_seconds": {
+      "type": "number", "title": "疲劳读数未知时复查间隔秒数", "minimum": 1, "maximum": 60, "default": 5
+    },
+    "pickaxe_auto_buy_enabled": {
+      "type": "boolean", "title": "自动购买中级矿锄（截图校准，单把5工资，实验功能）", "default": false
+    },
+    "pickaxe_character_id": {
+      "type": "string", "title": "购买记账角色唯一标识（每个角色不同，勿填写账号密码）", "default": ""
+    },
+    "pickaxe_wage_budget": {
+      "type": "integer", "title": "矿锄累计工资预算（持久记账，0=禁止购买）",
+      "minimum": 0, "maximum": 1000, "default": 0
+    },
+    "pickaxe_auto_equip_enabled": {
+      "type": "boolean", "title": "自动装备背包备用矿锄（需模板及区域，实验功能）", "default": false
+    },
+    "pickaxe_inventory_key": {
+      "type": "string", "title": "打开背包按键（按游戏实际设置填写）", "default": ""
+    },
+    "pickaxe_inventory_label": {
+      "type": "string", "title": "背包窗口标题（OCR准确匹配，防止误把活动窗口当背包）", "default": "物品"
+    },
+    "pickaxe_inventory_close_key": {
+      "type": "string", "title": "关闭背包按键（按游戏实际设置填写）", "default": ""
+    },
+    "pickaxe_inventory_region": {
+      "type": "array", "title": "背包物品格区域 [x,y,width,height]", "default": []
+    },
+    "pickaxe_tooltip_region": {
+      "type": "array", "title": "背包矿锄悬停提示覆盖区域 [x,y,width,height]", "default": []
+    },
+    "pickaxe_expected_name": {
+      "type": "string", "title": "备用矿锄名称（必须与悬停提示一致）", "default": "中级精钢矿锄"
+    },
+    "pickaxe_equip_method": {
+      "type": "string", "title": "矿锄装备点击方式（需实测确认）",
+      "enum": ["double_left", "right"], "default": "double_left"
+    },
+    "pickaxe_monitor_enabled": {
+      "type": "boolean", "title": "启用矿锄耐久监控（第一步：人工补充后自动恢复）", "default": false
+    },
+    "pickaxe_region": {
+      "type": "array", "title": "矿锄名称及耐久区域 [x,y,width,height]（客户区）", "default": []
+    },
+    "pickaxe_recheck_seconds": {
+      "type": "number", "title": "矿锄耗尽或识别失败后的复查间隔秒数",
+      "minimum": 1, "maximum": 60, "default": 5
+    },
+    "pickaxe_missing_checks": {
+      "type": "integer", "title": "矿锄消失复查次数（疑似缺失，不自动购买）",
+      "minimum": 2, "maximum": 10, "default": 3
+    },
     "target_line": {
       "type": "integer",
       "title": "目标线路",
@@ -25,7 +80,21 @@
       "title": "换线界面等待秒数",
       "minimum": 0.2,
       "maximum": 5,
-      "default": 0.8
+      "default": 0.35
+    },
+    "line_switch_max_attempts": {
+      "type": "integer",
+      "title": "挤线最多尝试次数（0=持续尝试）",
+      "minimum": 0,
+      "maximum": 500,
+      "default": 30
+    },
+    "line_switch_retry_wait": {
+      "type": "number",
+      "title": "挤线每次重试间隔秒数",
+      "minimum": 0.1,
+      "maximum": 10,
+      "default": 0.3
     },
     "mining_mode": {
       "type": "string",
@@ -37,6 +106,33 @@
       "type": "array",
       "title": "前往矿区动作 [{direction,seconds,jump}]",
       "default": []
+    },
+    "travel_mode": {
+      "type": "string", "title": "前往矿区方式（code=游戏代码寻路，actions=原动作路线）",
+      "enum": ["code", "actions"], "default": "actions"
+    },
+    "code_navigation_only": {
+      "type": "boolean", "title": "仅调试代码寻路（不换线、不按G、不购买）", "default": false
+    },
+    "code_target_map_id": {
+      "type": "integer", "title": "代码目标地图ID（55江陵/57东郊/131荆山南/906一层/907二层/908三层）",
+      "enum": [55, 57, 131, 906, 907, 908], "default": 907
+    },
+    "code_target_x": {
+      "type": "integer", "title": "代码目标原始X（小地图X×100；出口原始坐标不用再乘）",
+      "minimum": 0, "maximum": 100000, "default": 1000
+    },
+    "code_target_y": {
+      "type": "integer", "title": "代码目标原始Y（默认二层平台候选点570，需实测）",
+      "minimum": 0, "maximum": 100000, "default": 570
+    },
+    "code_navigation_timeout": {
+      "type": "number", "title": "代码寻路到达检测超时秒数",
+      "minimum": 1, "maximum": 600, "default": 120
+    },
+    "code_navigation_scan_interval": {
+      "type": "number", "title": "代码寻路两次检测之间暂停秒数（不包含OCR时间）",
+      "minimum": 0.2, "maximum": 10, "default": 0.7
     },
     "travel_action_pause": {
       "type": "number",

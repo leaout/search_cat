@@ -71,6 +71,12 @@ def on_unload(context):
 window = context.windows.current()
 alive = context.windows.is_alive()
 
+# 前台串行生成/点击寻路链接：X/Y使用原始地形单位，不是客户区像素。
+result = context.windows.navigate_by_code(907, 1000, 570)
+# result.clicked只表示已点击；ui_restored表示已通过界面检查，不表示到达。
+state = context.windows.read_navigation_state(['江陵', '黄石矿洞二层'])
+# 返回 {map_name, position:[小地图X,小地图Y]} 或 None（读数未知）。
+
 frame = context.capture.window(
     mode='auto',             # auto/background/foreground
     area='client',           # window/client
@@ -79,6 +85,11 @@ frame = context.capture.window(
 ```
 
 后台截图失败时，只有 `auto` 模式会回退到前台截图；显式 `background` 模式会直接报错。
+
+`navigate_by_code` 需要 window.bind、screen.capture、mouse.foreground、keyboard.foreground；
+整个面板事务持有全局前台锁。`read_navigation_state` 需要 window.bind、screen.capture，
+会激活绑定窗口并串行截图。读取只允许调用方指定的地图名，未知OCR不视为到达。
+这些操作不是后台输入；模拟运行不发送键鼠，也不声称真实到达。
 
 ## 找图和取色
 

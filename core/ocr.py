@@ -146,6 +146,23 @@ class Ocr:
         self.data = result[0] if result and result[0] else []
         if simple: return self.get_all_text(self.data)
         return self.data
+
+    def do_ocr_line(self, image: np.ndarray) -> List:
+        """Recognize a preselected single line without the text detector.
+
+        Tiny isolated digits can be missed entirely by full-image detection.
+        Reuse the shared recognizer and lock; do not construct another model.
+        Returned geometry covers the supplied crop, not a detected glyph box.
+        """
+        if not isinstance(image, np.ndarray) or image.ndim != 3 or not image.size:
+            raise ValueError('单行 OCR 需要非空彩色图像')
+        with type(self)._inference_lock:
+            result = self.ocr.ocr(image, det=False, cls=False)
+        height, width = image.shape[:2]
+        box = [[0, 0], [width - 1, 0], [width - 1, height - 1], [0, height - 1]]
+        return [[box, (str(pair[0]), float(pair[1]))]
+                for lines in result or [] for pair in lines or []
+                if isinstance(pair, (list, tuple)) and len(pair) == 2 and isinstance(pair[0], str)]
     
     def search_text(self, query: str, data: List[List[Any]] = None, threshold: float = 0.6) -> List[Tuple[str, Any]]:
         """

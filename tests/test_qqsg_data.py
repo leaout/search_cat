@@ -9,7 +9,10 @@ from plugin_platform.qqsg_data import MAP_DATA_PATH, QQSGPackage, build_routes, 
 
 
 def write_package(path: Path, name: str, payload: bytes):
-    compressed = zlib.compress(payload)
+    # A compressed size equal to raw size denotes a stored entry in this
+    # package format. Different zlib releases made this tiny fixture hit that
+    # equality; a level-0 zlib stream always includes header/trailer overhead.
+    compressed = zlib.compress(payload, level=0)
     encoded_name = name.encode('gb18030')
     data_offset = 16
     table_offset = data_offset + len(compressed)

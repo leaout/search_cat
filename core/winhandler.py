@@ -1,5 +1,6 @@
 from typing import Callable, Any, List
 import ctypes
+from contextlib import ExitStack
 from ctypes import wintypes
 from numpy import ndarray
 import pygetwindow as gw
@@ -149,13 +150,22 @@ class WindowHandler:
         """通过窗口句柄抓取窗口画面，避免被其他窗口遮挡。"""
         capture_width = max(1, int(width))
         capture_height = max(1, int(height))
-        window_dc = win32gui.GetWindowDC(hwnd)
-        source_dc = win32ui.CreateDCFromHandle(window_dc)
-        memory_dc = source_dc.CreateCompatibleDC()
-        bitmap = win32ui.CreateBitmap()
-        try:
+        with ExitStack() as resources:
+            window_dc = win32gui.GetWindowDC(hwnd)
+            if not window_dc:
+                raise RuntimeError('无法获取目标窗口绘图资源')
+            resources.callback(win32gui.ReleaseDC, hwnd, window_dc)
+            source_dc = win32ui.CreateDCFromHandle(window_dc)
+            resources.callback(source_dc.DeleteDC)
+            memory_dc = source_dc.CreateCompatibleDC()
+            resources.callback(memory_dc.DeleteDC)
+            bitmap = win32ui.CreateBitmap()
             bitmap.CreateCompatibleBitmap(source_dc, capture_width, capture_height)
-            memory_dc.SelectObject(bitmap)
+            resources.callback(win32gui.DeleteObject, bitmap.GetHandle())
+            original_bitmap = memory_dc.SelectObject(bitmap)
+            # A selected GDI bitmap cannot safely be deleted. ExitStack restores
+            # the original selection before deleting it, including on errors.
+            resources.callback(memory_dc.SelectObject, original_bitmap)
             print_window = ctypes.windll.user32.PrintWindow
             print_window.argtypes = [wintypes.HWND, wintypes.HDC, wintypes.UINT]
             print_window.restype = wintypes.BOOL
@@ -165,12 +175,7 @@ class WindowHandler:
             bitmap_data = bitmap.GetBitmapBits(True)
             image = np.frombuffer(bitmap_data, dtype=np.uint8)
             image = image.reshape((capture_height, capture_width, 4))
-            return image[:, :, [2, 1, 0]].copy()
-        finally:
-            win32gui.DeleteObject(bitmap.GetHandle())
-            memory_dc.DeleteDC()
-            source_dc.DeleteDC()
-            win32gui.ReleaseDC(hwnd, window_dc)
+            return image[:, :, 2::-1].copy()
 
     @staticmethod
     def _capture_window_preview(hwnd: int, width: int, height: int) -> np.ndarray:
@@ -277,7 +282,6 @@ class WindowHandler:
                     preview.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation
                 )
                 preview.setPixmap(pixmap)
-                preview.setText('')
             except Exception as error:
                 preview.setPixmap(QPixmap())
                 preview.setText(f'预览失败\n{error}')
@@ -359,10 +363,7 @@ class WindowHandler:
             monitor = {"top": y1, "left": x1, "width": x2-x1, "height": y2-y1}
             
             screenshot = sct.grab(monitor)
-            img = Image.frombytes("RGB", screenshot.size, screenshot.rgb)
-            # img.save("test.png")
-            img_array = np.array(img)
-            return img_array
+            return np.asarray(screenshot)[:, :, 2::-1].copy()
         return None
     
     def capture_screenshot_ext(self,x1,y1,x2,y2) -> ndarray:
@@ -375,9 +376,7 @@ class WindowHandler:
             monitor = {"top": top, "left": left, "width": right-left, "height": bottom-top}
             
             screenshot = sct.grab(monitor)
-            img = Image.frombytes("RGB", screenshot.size, screenshot.rgb)
-            img_array = np.array(img)
-            return img_array
+            return np.asarray(screenshot)[:, :, 2::-1].copy()
             
 
         return None

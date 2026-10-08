@@ -3,18 +3,24 @@
 import json
 import time
 from pathlib import Path
+from threading import Event
 
 import win32con
 import win32gui
-from PyQt5.QtCore import QThread, pyqtSignal
+from PyQt5.QtCore import QThread, Qt, pyqtSignal
+from PyQt5.QtGui import QImage, QPixmap
 from PyQt5.QtWidgets import (
     QComboBox,
     QDoubleSpinBox,
+    QDialog,
+    QDialogButtonBox,
     QGroupBox,
     QHBoxLayout,
     QInputDialog,
     QLabel,
     QLineEdit,
+    QListWidget,
+    QListWidgetItem,
     QMessageBox,
     QPushButton,
     QSpinBox,
@@ -24,6 +30,8 @@ from PyQt5.QtWidgets import (
 
 from core.winhandler import WindowHandler
 from core.winoperator import Win32Mouse
+from automation.input_coordinator import GLOBAL_FOREGROUND_INPUT
+from automation.services import AutomationHost
 from feature.window_key_feature import WindowKeyWorker
 
 
@@ -41,6 +49,111 @@ DEFAULT_PROFILE = {
     'mouse_clicks': 1,
     'mouse_interval': 0.1,
 }
+
+
+def _show_window_preview(preview: QLabel, detail: QLabel, info: dict | None) -> None:
+    """Show one bounded, on-demand portrait capture without activating the window."""
+    preview.clear()
+    if not info:
+        preview.setText('选择窗口后显示人物预览')
+        detail.clear()
+        return
+    hwnd = info['hwnd']
+    detail.setText(
+        f"{info.get('title', '窗口')} #{info.get('number', 1)}\n"
+        f"PID {info.get('pid', 0)} · HWND {hwnd}"
+    )
+    try:
+        if not win32gui.IsWindow(hwnd):
+            raise RuntimeError('窗口已关闭，请重新添加')
+        left, top, right, bottom = win32gui.GetWindowRect(hwnd)
+        frame = WindowHandler._capture_window_preview(hwnd, right - left, bottom - top)
+        image = QImage(frame.data, frame.shape[1], frame.shape[0], frame.strides[0],
+                       QImage.Format_RGB888).copy()
+        preview.setPixmap(QPixmap.fromImage(image).scaled(
+            preview.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation))
+    except Exception as error:
+        preview.setText(f'预览失败\n{error}')
+
+
+class AutomationWindowDialog(QDialog):
+    """Select windows by clicking rows; current-row focus is not a checkbox."""
+
+    def __init__(self, candidates: list[dict], existing: set[int], parent=None):
+        super().__init__(parent)
+        self.setWindowTitle('添加自动操作窗口')
+        self.resize(880, 500)
+        layout = QVBoxLayout(self)
+        layout.addWidget(QLabel('点击窗口即可选择；按 Ctrl/Shift 可多选。右侧预览用于确认角色。'))
+        self.search = QLineEdit()
+        self.search.setPlaceholderText('筛选窗口标题或 PID，例如 QQ三国')
+        layout.addWidget(self.search)
+        content = QHBoxLayout()
+        self.choices = QListWidget()
+        self.choices.setSelectionMode(QListWidget.ExtendedSelection)
+        content.addWidget(self.choices, 3)
+        preview_layout = QVBoxLayout()
+        self.preview = QLabel('选择窗口后显示人物预览')
+        self.preview.setAlignment(Qt.AlignCenter)
+        self.preview.setMinimumSize(320, 220)
+        self.preview.setStyleSheet('background: #F7F9FC; border: 1px solid #E1E6EE;')
+        preview_layout.addWidget(self.preview, 1)
+        self.detail = QLabel()
+        self.detail.setWordWrap(True)
+        preview_layout.addWidget(self.detail)
+        self.refresh = QPushButton('刷新人物预览')
+        self.refresh.clicked.connect(self._update_preview)
+        preview_layout.addWidget(self.refresh)
+        content.addLayout(preview_layout, 2)
+        layout.addLayout(content, 1)
+        self.selection_label = QLabel('已选择 0 个窗口')
+        layout.addWidget(self.selection_label)
+        self.buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        self.buttons.button(QDialogButtonBox.Ok).setText('添加所选窗口')
+        self.buttons.button(QDialogButtonBox.Cancel).setText('取消')
+        self.buttons.accepted.connect(self.accept)
+        self.buttons.rejected.connect(self.reject)
+        layout.addWidget(self.buttons)
+        self.choices.currentItemChanged.connect(self._update_preview)
+        self.choices.itemSelectionChanged.connect(self._selection_changed)
+        self.search.textChanged.connect(self._filter)
+        for info in candidates:
+            item = QListWidgetItem(AutomationFeature._window_text(info))
+            item.setData(Qt.UserRole, info)
+            self.choices.addItem(item)
+            if info['hwnd'] in existing:
+                item.setSelected(True)
+        self._selection_changed()
+
+    def selected_windows(self) -> list[dict]:
+        return [item.data(Qt.UserRole) for item in self.choices.selectedItems() if not item.isHidden()]
+
+    def _selection_changed(self) -> None:
+        count = len(self.selected_windows())
+        self.selection_label.setText(f'已选择 {count} 个窗口')
+        self.buttons.button(QDialogButtonBox.Ok).setEnabled(count > 0)
+
+    def _filter(self, text: str) -> None:
+        keyword = text.casefold().strip()
+        for index in range(self.choices.count()):
+            item = self.choices.item(index)
+            hidden = keyword not in item.text().casefold()
+            item.setHidden(hidden)
+            if hidden:
+                item.setSelected(False)
+        self._selection_changed()
+        self._update_preview()
+
+    def _update_preview(self, *_args) -> None:
+        item = self.choices.currentItem()
+        info = item.data(Qt.UserRole) if item is not None and not item.isHidden() else None
+        _show_window_preview(self.preview, self.detail, info)
+
+    def accept(self) -> None:
+        if not self.selected_windows():
+            self.selection_label.setText('请先点击选择至少一个窗口')
+            return
+        super().accept()
 
 
 def _normalise_profile(value):
@@ -143,6 +256,131 @@ class MouseAutomationWorker(QThread):
         self.running = False
 
 
+class MultiWindowAutomationWorker(QThread):
+    """Execute one profile on an immutable window snapshot, with one stop flag."""
+
+    status_updated = pyqtSignal(str)
+    error_occurred = pyqtSignal(str)
+
+    def __init__(self, windows: list[dict], profile: dict):
+        super().__init__()
+        self.windows = [dict(info) for info in windows]
+        self.profile = _normalise_profile(profile)
+        self._stop_event = Event()
+        self.key_sequence = WindowKeyWorker._parse_key_combination(self, self.profile['key_combination'])
+
+    def stop(self):
+        self._stop_event.set()
+        self.requestInterruption()
+
+    def _wait(self, seconds: float) -> bool:
+        return self._stop_event.wait(max(0.0, seconds))
+
+    def _run_input(self, host, operation) -> None:
+        """Hold the shared lock only for input, never for configurable waits."""
+        def guarded():
+            if self._stop_event.is_set():
+                return
+            host._validate_bound_window_identity()
+            if self.profile['execution_mode'] == 'foreground':
+                if not host._activate_bound_window():
+                    raise RuntimeError('无法激活目标窗口，未发送输入')
+                host._validate_bound_window_foreground()
+            operation()
+
+        if self.profile['execution_mode'] == 'foreground':
+            GLOBAL_FOREGROUND_INPUT.run(guarded)
+        else:
+            guarded()
+
+    @staticmethod
+    def _press_keys(host, keys: list[str], background: bool) -> None:
+        try:
+            if background:
+                if len(keys) == 1:
+                    host._keyboard_press({'key': keys[0], 'mode': 'background'})
+                else:
+                    host._keyboard_hotkey({'keys': keys, 'mode': 'background'})
+            elif len(keys) == 1:
+                host.keyboard.press(keys[0])
+            else:
+                host.keyboard.press_combination(*keys)
+        finally:
+            for key in reversed(keys):
+                if background:
+                    host._keyboard_key_up({'key': key, 'mode': 'background'})
+                else:
+                    host.keyboard.release_key(key)
+
+    def _execute_window(self, host) -> None:
+        if self._stop_event.is_set():
+            return
+        background = self.profile['execution_mode'] == 'background'
+        if self.profile['action_mode'] == 'key':
+            for group in self.key_sequence:
+                keys, repeat = WindowKeyWorker._normalise_group(group)
+                for _ in range(repeat):
+                    if self._stop_event.is_set():
+                        return
+                    self._run_input(host, lambda: self._press_keys(host, keys, background))
+                    if self._wait(self.profile['delay_between_keys']):
+                        return
+        else:
+            for _ in range(self.profile['mouse_clicks']):
+                if self._stop_event.is_set():
+                    return
+                params = {
+                    'x': self.profile['mouse_x'], 'y': self.profile['mouse_y'],
+                    'button': self.profile['mouse_button'], 'coordinate_space': 'client',
+                    'mode': 'background' if background else 'foreground',
+                }
+                self._run_input(host, lambda: host._mouse_click(params))
+                if self._wait(self.profile['mouse_interval']):
+                    return
+
+    def run(self) -> None:
+        hosts = []
+        try:
+            # Initialize system resources in the worker, never on the GUI thread.
+            for info in self.windows:
+                if self._stop_event.is_set():
+                    return
+                try:
+                    host = AutomationHost(Path.cwd(), Path.cwd(),
+                                          ['window.bind', 'keyboard.foreground', 'keyboard.background',
+                                           'mouse.foreground', 'mouse.background'], dry_run=False)
+                    host.register_window(info)
+                    hosts.append((info, host))
+                except Exception as error:
+                    self.error_occurred.emit(f"窗口 {info.get('title', info['hwnd'])} 初始化失败：{error}")
+            cycle = 0
+            while hosts and not self._stop_event.is_set():
+                cycle += 1
+                active = []
+                for info, host in hosts:
+                    if self._stop_event.is_set():
+                        break
+                    try:
+                        self._execute_window(host)
+                        active.append((info, host))
+                        if not self._stop_event.is_set():
+                            self.status_updated.emit(
+                                f"第 {cycle} 轮：{info.get('title', '窗口')} · PID {info.get('pid', 0)} 已执行"
+                            )
+                    except Exception as error:
+                        self.error_occurred.emit(f"窗口 {info.get('title', info['hwnd'])} 已暂停：{error}")
+                hosts = active
+                if hosts and not self._stop_event.is_set():
+                    self.status_updated.emit(f'第 {cycle} 轮完成，{len(hosts)} 个窗口；等待下一轮')
+                    self._wait(self.profile['loop_interval'])
+        except Exception as error:
+            self.error_occurred.emit(f'自动操作初始化失败：{error}')
+        finally:
+            for _, host in hosts:
+                host.release_all_keys()
+            self._stop_event.set()
+
+
 class AutomationFeature:
     """One automation entry point for target-window keyboard and mouse input."""
 
@@ -151,8 +389,10 @@ class AutomationFeature:
         self.group_box = None
         self.worker = None
         self.selected_hwnd = None
+        self.target_windows = []
         self.is_running = False
         self._worker_error = False
+        self._stop_requested = False
         self.saved_config = self._load_config()
         self._loading_profile = False
 
@@ -231,12 +471,23 @@ class AutomationFeature:
         self.profile_combo.currentTextChanged.connect(self.switch_profile)
 
         window_row = QHBoxLayout()
-        self.choose_btn = QPushButton('选择目标窗口')
+        self.choose_btn = QPushButton('添加窗口（可多选）')
         self.choose_btn.clicked.connect(self.choose_window)
         window_row.addWidget(self.choose_btn)
         self.window_label = QLabel('未选择窗口')
         window_row.addWidget(self.window_label, 1)
+        self.remove_window_btn = QPushButton('移除所选')
+        self.remove_window_btn.clicked.connect(self.remove_windows)
+        window_row.addWidget(self.remove_window_btn)
+        self.clear_windows_btn = QPushButton('清空窗口')
+        self.clear_windows_btn.clicked.connect(self.clear_windows)
+        window_row.addWidget(self.clear_windows_btn)
         layout.addLayout(window_row)
+        self.window_list = QListWidget()
+        self.window_list.setSelectionMode(QListWidget.ExtendedSelection)
+        self.window_list.setMaximumHeight(110)
+        self.window_list.setToolTip('可添加多个窗口；鼠标位置以列表选中的窗口为参考，点击坐标是客户区相对坐标')
+        layout.addWidget(self.window_list)
 
         mode_row = QHBoxLayout()
         mode_row.addWidget(QLabel('动作:'))
@@ -318,6 +569,7 @@ class AutomationFeature:
         self.progress_display = QTextEdit()
         self.progress_display.setReadOnly(True)
         self.progress_display.setMaximumHeight(80)
+        self.progress_display.document().setMaximumBlockCount(500)
         self.progress_display.setPlaceholderText('运行状态将显示在这里')
         layout.addWidget(self.progress_display)
 
@@ -434,30 +686,79 @@ class AutomationFeature:
         self.save_config()
 
     def choose_window(self):
-        handler = WindowHandler()
-        handler.choose_window()
-        if not handler.window:
+        if self.is_running:
             return
-        self.selected_hwnd = handler.window._hWnd
-        info = handler.window_info or {}
-        title = str(info.get('title') or handler.window.title)
-        number = f" #{info.get('number')}" if info.get('number') else ''
-        pid = f" · PID {info.get('pid')}" if info.get('pid') else ''
-        self.window_label.setText(f'{title}{number}{pid}')
-        self.saved_config['last_window'] = {
-            'title': title,
-            'number': int(info.get('number') or 1),
-            'pid': int(info.get('pid') or 0),
-        }
-        self.save_config()
-        self.status_label.setText('状态: 已选择窗口')
+        handler = WindowHandler()
+        candidates = handler.list_window_candidates()
+        if not candidates:
+            self.status_label.setText('状态: 没有找到可选窗口')
+            return
+        existing = {info['hwnd'] for info in self.target_windows}
+        dialog = AutomationWindowDialog(candidates, existing, self.group_box)
+        try:
+            if dialog.exec_() != QDialog.Accepted:
+                return
+            selected = dialog.selected_windows()
+        finally:
+            # Parent-owned dialogs otherwise retain their screenshot pixmap on every reopen.
+            dialog.deleteLater()
+        before = len(self.target_windows)
+        self._add_windows(selected)
+        added = len(self.target_windows) - before
+        self.status_label.setText(f'状态: 本次新增 {added} 个窗口，共 {len(self.target_windows)} 个')
+
+    @staticmethod
+    def _window_text(info: dict) -> str:
+        return f"{info.get('title', '窗口')} #{info.get('number', 1)} · PID {info.get('pid', 0)}"
+
+    def _add_windows(self, windows: list[dict]) -> None:
+        existing = {info['hwnd'] for info in self.target_windows}
+        for info in windows:
+            if info['hwnd'] in existing:
+                continue
+            self.target_windows.append({key: info[key] for key in ('hwnd', 'pid', 'title', 'number') if key in info})
+            existing.add(info['hwnd'])
+        self._refresh_windows()
+        if self.target_windows:
+            info = self.target_windows[0]
+            self.saved_config['last_window'] = {key: info.get(key, '') for key in ('title', 'pid', 'number')}
+            self.save_config()
+
+    def _refresh_windows(self) -> None:
+        self.window_list.clear()
+        for info in self.target_windows:
+            item = QListWidgetItem(self._window_text(info))
+            item.setData(Qt.UserRole, info['hwnd'])
+            self.window_list.addItem(item)
+        self.selected_hwnd = self.target_windows[0]['hwnd'] if self.target_windows else None
+        if self.target_windows:
+            self.window_list.setCurrentRow(0)
+        self.window_label.setText(f'已添加 {len(self.target_windows)} 个窗口')
+        self.status_label.setText('状态: 窗口列表已更新')
+
+    def remove_windows(self) -> None:
+        if self.is_running:
+            return
+        removed = {item.data(Qt.UserRole) for item in self.window_list.selectedItems()}
+        self.target_windows = [info for info in self.target_windows if info['hwnd'] not in removed]
+        self._refresh_windows()
+
+    def clear_windows(self) -> None:
+        if self.is_running:
+            return
+        self.target_windows = []
+        self._refresh_windows()
 
     def capture_position(self):
-        if not self.selected_hwnd:
+        if self.is_running:
+            return
+        item = self.window_list.currentItem()
+        reference_hwnd = item.data(Qt.UserRole) if item is not None else self.selected_hwnd
+        if not reference_hwnd or not win32gui.IsWindow(reference_hwnd):
             self.status_label.setText('状态: 请先选择目标窗口')
             return
         screen_x, screen_y = Win32Mouse().get_cursor_pos()
-        client_x, client_y = win32gui.ScreenToClient(self.selected_hwnd, (screen_x, screen_y))
+        client_x, client_y = win32gui.ScreenToClient(reference_hwnd, (screen_x, screen_y))
         self.mouse_x_input.setValue(client_x)
         self.mouse_y_input.setValue(client_y)
         self.status_label.setText(f'状态: 已读取窗口坐标 ({client_x}, {client_y})')
@@ -468,54 +769,67 @@ class AutomationFeature:
     def start(self):
         if self.is_running:
             return
-        if not self.selected_hwnd or not win32gui.IsWindow(self.selected_hwnd):
-            self.status_label.setText('状态: 请先选择有效窗口')
+        if self.worker is not None and self.worker.isRunning():
+            self.status_label.setText('状态: 正在停止，请稍候')
+            return
+        windows = [info for info in self.target_windows if win32gui.IsWindow(info['hwnd'])]
+        if not windows:
+            self.status_label.setText('状态: 请先添加有效窗口')
             return
         self.save_config()
         profile = self._capture_profile()
         self._worker_error = False
+        self._stop_requested = False
         background = profile['execution_mode'] == 'background'
-        if profile['action_mode'] == 'key':
-            self.worker = WindowKeyWorker(
-                profile['key_combination'], self.selected_hwnd,
-                profile['delay_between_keys'], profile['loop_interval'], background,
-            )
-        else:
-            self.worker = MouseAutomationWorker(
-                self.selected_hwnd, profile['mouse_x'], profile['mouse_y'],
-                profile['mouse_button'], profile['mouse_clicks'], profile['mouse_interval'],
-                profile['loop_interval'], background,
-            )
+        self.worker = MultiWindowAutomationWorker(windows, profile)
         self.worker.status_updated.connect(self.on_status)
         self.worker.error_occurred.connect(self.on_error)
-        self.worker.finished.connect(self._worker_finished)
-        self.worker.start()
+        self.worker.finished.connect(lambda worker=self.worker: self._worker_finished(worker))
         self.is_running = True
+        self._set_editing_enabled(False)
         self.start_btn.setText('停止 (Home)')
         self.status_label.setText('状态: 执行中')
-        self.progress_display.append(f"启动：{'按键链' if profile['action_mode'] == 'key' else '鼠标点击'} / {'后台' if background else '前台'}")
+        self.progress_display.append(f"启动：{len(windows)} 个窗口 / {'按键链' if profile['action_mode'] == 'key' else '鼠标点击'} / {'后台' if background else '前台'}")
         if hasattr(self.parent, 'hotkey_status_label'):
             self.parent.hotkey_status_label.setText('▶ 自动操作 - 运行中')
+        self.worker.start()
 
     def stop(self):
+        self._stop_requested = True
         if self.worker:
             self.worker.stop()
-            self.worker.wait(2000)
+            if not self.worker.wait(2000):
+                self.start_btn.setText('正在停止…')
+                self.start_btn.setEnabled(False)
+                self.status_label.setText('状态: 正在停止，当前输入返回后结束')
+                return
         self.is_running = False
+        self.start_btn.setEnabled(True)
+        self._set_editing_enabled(True)
         self.start_btn.setText('启动 (Home)')
         self.status_label.setText('状态: 已停止')
         if hasattr(self.parent, 'hotkey_status_label'):
             self.parent.hotkey_status_label.setText('○ 自动操作 - 停止')
 
-    def _worker_finished(self):
-        if not self.is_running:
+    def _worker_finished(self, worker=None):
+        if worker is not None and worker is not self.worker:
             return
         self.is_running = False
+        self.start_btn.setEnabled(True)
+        self._set_editing_enabled(True)
         self.start_btn.setText('启动 (Home)')
-        self.status_label.setText('状态: 执行出错' if self._worker_error else '状态: 已完成')
+        state = '已停止' if self._stop_requested else ('执行出错' if self._worker_error else '已完成')
+        self.status_label.setText(f'状态: {state}')
         if hasattr(self.parent, 'hotkey_status_label'):
-            state = '执行出错' if self._worker_error else '已完成'
             self.parent.hotkey_status_label.setText(f'○ 自动操作 - {state}')
+
+    def _set_editing_enabled(self, enabled: bool) -> None:
+        for widget in (self.choose_btn, self.remove_window_btn, self.clear_windows_btn,
+                       self.profile_combo, self.save_btn, self.save_as_btn, self.delete_btn,
+                       self.action_combo, self.execution_combo, self.key_input, self.key_delay_input,
+                       self.mouse_x_input, self.mouse_y_input, self.capture_pos_btn,
+                       self.button_combo, self.mouse_clicks_input, self.mouse_interval_input, self.loop_input):
+            widget.setEnabled(enabled)
 
     def on_status(self, status):
         self.status_label.setText(f'状态: {status}')

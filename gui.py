@@ -16,7 +16,7 @@ from PyQt5.QtWidgets import (QApplication, QMainWindow, QVBoxLayout, QHBoxLayout
                             QWidget, QGroupBox, QTextEdit, QLabel, QPushButton, 
                             QLineEdit, QSpinBox, QCheckBox, QComboBox, QGridLayout,
                             QStatusBar, QFrame, QListWidget)
-from PyQt5.QtCore import Qt, QMetaObject, QObject, Q_ARG, QTimer, QDateTime
+from PyQt5.QtCore import Qt, QMetaObject, QObject, Q_ARG, QTimer, QDateTime, pyqtSignal
 from PyQt5.QtGui import QIcon, QFont
 from feature.ocr_feature import OCRFeature
 from feature.automation_feature import AutomationFeature
@@ -164,6 +164,9 @@ class BaseGUI(QMainWindow):
         self.question_count_label.setText(f"题库: {count}题")
 
 class QSearchApp(BaseGUI):
+    toggle_requested = pyqtSignal()
+    emergency_stop_requested = pyqtSignal()
+
     def __init__(self):
         super().__init__()
         self.setup_feature_selector()
@@ -202,8 +205,10 @@ class QSearchApp(BaseGUI):
         self.feature_combo.currentTextChanged.connect(self.switch_feature)
         self.switch_feature('OCR识别')
         
-        keyboard.add_hotkey('home', self.toggle_current_feature)
-        keyboard.add_hotkey('ctrl+shift+f12', self.emergency_stop)
+        self.toggle_requested.connect(self.toggle_current_feature, Qt.QueuedConnection)
+        self.emergency_stop_requested.connect(self.emergency_stop, Qt.QueuedConnection)
+        keyboard.add_hotkey('home', self.toggle_requested.emit)
+        keyboard.add_hotkey('ctrl+shift+f12', self.emergency_stop_requested.emit)
         
         # 启动时检查许可证，过期则禁用功能
         self._update_feature_enabled_state()

@@ -4,6 +4,7 @@ import shutil
 import time
 from copy import deepcopy
 from pathlib import Path
+from threading import Event
 
 import cv2
 import win32gui
@@ -23,6 +24,8 @@ from plugin_platform.manager import PluginManager, PluginManifest
 from plugin_platform.qqsg_data import (QQSGPackage, find_installation, import_routes,
                                        parse_map_catalog)
 from plugin_platform.runner import PluginProcess
+from plugin_platform.line_grid import find_line_target, infer_server_menu_button
+from plugin_platform.qqsg_pickaxe_shop import purchase_session_key
 
 
 class ScalablePreviewLabel(QLabel):
@@ -66,6 +69,7 @@ class BatchLineSwitchWorker(QThread):
     def __init__(self, manager: PluginManager, windows: list[dict], target_line: int,
                  dry_run: bool, max_attempts: int = 20, parent=None):
         super().__init__(parent)
+        self._stop_event = Event()
         self.manager = manager
         self.windows = [dict(item) for item in windows]
         self.target_line = int(target_line)
@@ -74,9 +78,29 @@ class BatchLineSwitchWorker(QThread):
         # window instead of counting a click/submit as a successful switch.
         self.max_attempts = max(1, int(max_attempts))
         self.retry_delay = 0.20
-        self.menu_wait = 0.28
-        self.selector_wait = 0.42
+        self.menu_wait = 0.15
+        self.selector_wait = 0.20
         self.verify_timeout = 2.40
+
+    def requestInterruption(self):
+        # Qt clears its interruption flag after run() exits. Keep the user's
+        # stop request until the queued completion signal is handled by the UI.
+        self._stop_event.set()
+        super().requestInterruption()
+
+    def isInterruptionRequested(self):
+        return self._stop_event.is_set() or super().isInterruptionRequested()
+
+    def _check_stop(self):
+        if self.isInterruptionRequested():
+            raise InterruptedError('收到停止请求')
+
+    def _wait(self, seconds: float):
+        deadline = time.monotonic() + seconds
+        while time.monotonic() < deadline:
+            self._check_stop()
+            time.sleep(min(0.05, max(0, deadline - time.monotonic())))
+        self._check_stop()
 
     @staticmethod
     def _compact(text: str) -> str:
@@ -133,11 +157,11 @@ class BatchLineSwitchWorker(QThread):
             last_line, last_title = line, title
             if line == self.target_line:
                 return True, title, line
-            time.sleep(0.12)
+            self._wait(0.12)
         return False, last_title, last_line
 
     @staticmethod
-    def _capture_items(host: AutomationHost) -> list[dict]:
+    def _capture_items(host: AutomationHost, include_yellow: bool = False) -> list[dict]:
         frame = host.dispatch('capture.window', {'mode': 'auto', 'area': 'client'})
         try:
             base_items = list(host.dispatch('ocr.recognize', {
@@ -145,17 +169,20 @@ class BatchLineSwitchWorker(QThread):
                 'min_confidence': 0.35,
                 'preprocess': 'none',
             }) or [])
-            # The line selector uses yellow/cyan outlined text.  A second
-            # yellow-mask pass recovers digits that the normal OCR pass can
-            # miss, while the small de-duplication keeps menu clicks stable.
-            try:
-                yellow_items = list(host.dispatch('ocr.recognize', {
-                    'frame_id': frame['id'],
-                    'min_confidence': 0.30,
-                    'preprocess': 'task_yellow',
-                }) or [])
-            except Exception:
-                yellow_items = []
+            # Only enlarge/mask the screen if the normal pass cannot locate
+            # the control. Full-screen enhanced OCR is expensive.
+            yellow_items = []
+            if include_yellow:
+                try:
+                    yellow_items = list(host.dispatch('ocr.recognize', {
+                        'frame_id': frame['id'],
+                        'min_confidence': 0.30,
+                        'preprocess': 'task_yellow',
+                    }) or [])
+                except InterruptedError:
+                    raise
+                except Exception:
+                    yellow_items = []
             merged = []
             seen = set()
             for item in base_items + yellow_items:
@@ -189,58 +216,12 @@ class BatchLineSwitchWorker(QThread):
                 score = 2
             if score and cls._item_center(item):
                 candidates.append((score, item))
-        return max(candidates, key=lambda value: value[0])[1] if candidates else None
+        return (max(candidates, key=lambda value: value[0])[1] if candidates
+                else infer_server_menu_button(items, cls._item_center))
 
     @classmethod
     def _find_target_line(cls, items: list[dict], target_line: int) -> dict | None:
-        number = str(int(target_line))
-        line_pattern = re.compile(rf'(?<!\d){re.escape(number)}(?:线|号线|线路)(?!\d)')
-        candidates = []
-        for item in items:
-            text = cls._compact(item.get('text', ''))
-            if not text or not cls._item_center(item):
-                continue
-            if line_pattern.search(text) or text in {number, f'线路{number}'}:
-                candidates.append(item)
-        if not candidates:
-            # Some QQSG builds render the right (even-numbered) column in a
-            # color that PaddleOCR misses. When the target row itself is still
-            # anchored by the opposite column (for example 13/14), infer the
-            # missing column from the selector grid instead of clicking blind.
-            numbered = []
-            number_pattern = re.compile(r'(?<!\d)(\d{1,2})\s*(?:线|号线|线路)')
-            for item in items:
-                text = cls._compact(item.get('text', ''))
-                center = cls._item_center(item)
-                match = number_pattern.search(text)
-                if not match or center is None:
-                    continue
-                numbered.append((int(match.group(1)), center, item))
-            target_row = (int(target_line) - 1) // 2
-            target_column = (int(target_line) - 1) % 2
-            row_items = [entry for entry in numbered if (entry[0] - 1) // 2 == target_row]
-            if not row_items:
-                return None
-            frame_width = max(int(entry[2].get('_frame_width', 0)) for entry in numbered)
-            if frame_width <= 0:
-                return None
-            x_by_column = {}
-            for column in (0, 1):
-                values = [entry[1][0] for entry in numbered if (entry[0] - 1) % 2 == column]
-                if values:
-                    x_by_column[column] = round(sum(values) / len(values))
-            if 0 not in x_by_column:
-                return None
-            x_by_column.setdefault(1, round(frame_width * 0.66))
-            y = round(sum(entry[1][1] for entry in row_items) / len(row_items))
-            return {
-                'text': f'{target_line}线（网格定位）',
-                'center': [x_by_column[target_column], y],
-                '_grid_fallback': True,
-            }
-        # Prefer the shortest OCR token so a line row is not confused with
-        # a longer server name containing the same number.
-        return min(candidates, key=lambda item: len(cls._compact(item.get('text', ''))))
+        return find_line_target(items, target_line, cls._item_center)
 
     @classmethod
     def _available_lines(cls, items: list[dict]) -> list[int]:
@@ -272,6 +253,41 @@ class BatchLineSwitchWorker(QThread):
             return None
         return min(candidates, key=lambda value: (value[0], value[1]))[2]
 
+    @classmethod
+    def _is_switch_blocker(cls, items: list[dict]) -> bool:
+        """Detect QQSG's map-restriction dialog.
+
+        When a character is still in a map that disallows server switching,
+        the game shows a modal message such as “当前在副本地图中，不能切换
+        服务器”.  Esc does not dismiss this modal reliably, so it must be
+        acknowledged before another挤线 attempt can start.
+        """
+        texts = [cls._compact(item.get('text', '')) for item in items]
+        blocker = any(
+            ('不能切换' in text)
+            or ('无法切换' in text)
+            or any(word in text for word in ('服务器已满', '线路已满', '人数已满', '换线失败'))
+            or ('当前在' in text and ('地图' in text or '服务器' in text))
+            or ('副本地图' in text)
+            for text in texts
+        )
+        return blocker
+
+    @classmethod
+    def _find_switch_blocker(cls, items: list[dict]) -> dict | None:
+        """Return the modal's acknowledgement button, if OCR found it."""
+        if not cls._is_switch_blocker(items):
+            return None
+        # Do not use the generic “换线” match here: the blocked modal can
+        # leave the server menu visible behind it. Only click the modal's own
+        # acknowledgement label; otherwise the Enter fallback is safer.
+        candidates = []
+        for item in items:
+            text = cls._compact(item.get('text', ''))
+            if ('确定' in text or '确认' in text) and cls._item_center(item):
+                candidates.append((len(text), item))
+        return min(candidates, key=lambda value: value[0])[1] if candidates else None
+
     def _click_item(self, host: AutomationHost, item: dict):
         center = self._item_center(item)
         if center is None:
@@ -290,22 +306,37 @@ class BatchLineSwitchWorker(QThread):
             'coordinate_space': 'client',
         })
 
-    def _open_server_menu(self, host: AutomationHost) -> dict:
+    def _open_server_menu(self, host: AutomationHost, info: dict) -> dict:
         """Bring the system menu to a known state and find its line-switch button."""
         # A previous failed attempt may have left either the line selector or
         # a confirmation panel open.  Inspect first, then use Esc at most
         # three times (selector -> system menu -> game) until the button is
         # visible.  This avoids blind Esc presses on retries.
         host.dispatch('keyboard.press', {'key': 'esc', 'mode': 'foreground'})
-        time.sleep(self.menu_wait)
+        self._wait(self.menu_wait)
         for attempt in range(3):
             menu_items = self._capture_items(host)
+            if self._is_switch_blocker(menu_items):
+                self._emit_log(info, '检测到换线失败提示，点击确定后继续')
+                blocker = self._find_switch_blocker(menu_items)
+                if blocker is not None:
+                    self._click_item(host, blocker)
+                else:
+                    # The message text can be recognized while the small
+                    # button is missed. The modal owns focus, so Enter is a
+                    # safe fallback acknowledgement.
+                    host.dispatch('keyboard.press', {'key': 'enter', 'mode': 'foreground'})
+                self._wait(self.menu_wait)
+                continue
             server_button = self._find_server_button(menu_items)
+            if server_button is None:
+                menu_items = self._capture_items(host, include_yellow=True)
+                server_button = self._find_server_button(menu_items)
             if server_button is not None:
                 return server_button
             if attempt < 2:
                 host.dispatch('keyboard.press', {'key': 'esc', 'mode': 'foreground'})
-                time.sleep(self.menu_wait)
+                self._wait(self.menu_wait)
         raise RuntimeError('未识别到“服务器选线/选线”按钮')
 
     def _switch_one_once(self, host: AutomationHost, info: dict):
@@ -317,15 +348,21 @@ class BatchLineSwitchWorker(QThread):
             'x': 8, 'y': 8, 'duration': 0,
             'coordinate_space': 'client',
         })
-        server_button = self._open_server_menu(host)
+        server_button = self._open_server_menu(host, info)
         self._emit_log(info, f'点击换线入口：{server_button.get("text", "") or "服务器选线"}')
         self._click_item(host, server_button)
-        time.sleep(self.selector_wait)
+        self._wait(self.selector_wait)
         line_items = self._capture_items(host)
         target = self._find_target_line(line_items, self.target_line)
         if target is None:
+            line_items = self._capture_items(host, include_yellow=True)
+            target = self._find_target_line(line_items, self.target_line)
+        if target is None:
             available = self._available_lines(line_items)
             available_text = '、'.join(f'{line}线' for line in available) if available else '无'
+            diagnostics = [f'{item.get("text", "")}@{self._item_center(item)}'
+                           for item in line_items if re.search(r'\d\s*线', str(item.get('text', '')))]
+            self._emit_log(info, '线路定位诊断：' + ' / '.join(diagnostics[:20]))
             raise RuntimeError(
                 f'当前选线窗口没有识别到目标线路：{self.target_line}线；'
                 f'当前可见线路：{available_text}。请确认该线路已开放。'
@@ -333,10 +370,13 @@ class BatchLineSwitchWorker(QThread):
         if target.get('_grid_fallback'):
             self._emit_log(info, f'未直接识别到 {self.target_line} 线，按选线网格定位点击')
         self._emit_log(info, f'点击目标线路：{target.get("text", "") or f"{self.target_line}线"}')
+        # Selecting a line does not move the panel or its confirm button.
+        # Reuse this observation instead of paying for another full OCR pass.
+        confirm = self._find_confirm(line_items)
         self._click_item(host, target)
-        time.sleep(self.menu_wait)
-        confirm_items = self._capture_items(host)
-        confirm = self._find_confirm(confirm_items)
+        self._wait(0.08)
+        if confirm is None:
+            confirm = self._find_confirm(self._capture_items(host))
         if confirm is not None:
             self._emit_log(info, f'点击确认：{confirm.get("text", "") or "确定"}')
             self._click_item(host, confirm)
@@ -363,9 +403,12 @@ class BatchLineSwitchWorker(QThread):
         last_error = None
         for attempt in range(1, self.max_attempts + 1):
             if self.isInterruptionRequested():
-                raise RuntimeError('收到停止请求')
+                raise InterruptedError('收到停止请求')
             if attempt > 1:
                 current_line, current_title = self._window_state(info)
+                if current_line == self.target_line:
+                    self._emit_log(info, f'窗口标题已确认 {self.target_line}线，结束重试')
+                    return
                 line_text = f'{current_line}线' if current_line is not None else '未读到线路号'
                 self._emit_log(
                     info,
@@ -374,7 +417,10 @@ class BatchLineSwitchWorker(QThread):
             try:
                 self._switch_one_once(host, info)
                 return
+            except InterruptedError:
+                raise
             except Exception as error:
+                self._check_stop()
                 last_error = error
                 if attempt >= self.max_attempts:
                     break
@@ -386,7 +432,7 @@ class BatchLineSwitchWorker(QThread):
                     host.dispatch('keyboard.press', {'key': 'esc', 'mode': 'foreground'})
                 except Exception:
                     pass
-                time.sleep(self.retry_delay)
+                self._wait(self.retry_delay)
         raise RuntimeError(f'{self.max_attempts} 次尝试后仍未确认切换到 {self.target_line}线：{last_error}')
 
     def run(self):
@@ -407,6 +453,15 @@ class BatchLineSwitchWorker(QThread):
             dry_run=False,
             session_id='batch-switch-line',
         )
+        dispatch = host.dispatch
+
+        def cancellable_dispatch(method, params):
+            self._check_stop()
+            result = dispatch(method, params)
+            self._check_stop()
+            return result
+
+        host.dispatch = cancellable_dispatch
         success = 0
         failed = 0
         for info in self.windows:
@@ -416,6 +471,9 @@ class BatchLineSwitchWorker(QThread):
             try:
                 self._switch_one(host, info)
                 success += 1
+            except InterruptedError:
+                self._emit_log(info, '已停止换线，后续窗口不再操作')
+                break
             except Exception as error:
                 failed += 1
                 self._emit_log(info, f'换线失败：{error}')
@@ -576,6 +634,27 @@ class ScriptPlatformFeature:
         daily_region_layout.addStretch(1)
         self.daily_region_panel.setVisible(False)
         control_layout.addWidget(self.daily_region_panel)
+
+        self.mining_region_panel = QWidget()
+        mining_region_layout = QHBoxLayout(self.mining_region_panel)
+        mining_region_layout.setContentsMargins(0, 0, 0, 0)
+        mining_region_layout.setSpacing(6)
+        mining_region_layout.addWidget(QLabel('采集管理区域：'))
+        for text, key, title, label in (
+            ('框选矿锄状态', 'pickaxe_region', 'Select pickaxe status', '矿锄状态'),
+            ('框选背包物品', 'pickaxe_inventory_region', 'Select inventory slots', '背包物品'),
+            ('框选名称提示', 'pickaxe_tooltip_region', 'Select pickaxe tooltip area', '矿锄名称提示'),
+        ):
+            button = QPushButton(text)
+            button.setToolTip('先在游戏中展示对应区域，再框选客户区截图；区域保存到当前插件配置')
+            button.clicked.connect(
+                lambda checked=False, k=key, t=title, name=label: self._select_qqsg_region(k, t, name)
+            )
+            mining_region_layout.addWidget(button)
+        mining_region_layout.addWidget(QLabel('疲劳：F1 自动读取，无需框选'))
+        mining_region_layout.addStretch(1)
+        self.mining_region_panel.setVisible(False)
+        control_layout.addWidget(self.mining_region_panel)
 
         # The daily-task plugin is commonly debugged one activity at a time.
         # Keep this selector next to the QQSG controls so users do not need to
@@ -1045,6 +1124,7 @@ class ScriptPlatformFeature:
         }
         self.qqsg_data_panel.setVisible(visible)
         self.daily_region_panel.setVisible(manifest.id == 'com.searchcat.qqsg.daily-tasks')
+        self.mining_region_panel.setVisible(manifest.id == 'com.searchcat.qqsg.mining')
         if visible:
             route_count = len(config.get('npc_routes', {})) if isinstance(config.get('npc_routes'), dict) else 0
             captured_maps = config.get('captured_npc_maps', {})
@@ -1140,7 +1220,11 @@ class ScriptPlatformFeature:
             'com.searchcat.qqsg.official-task',
             'com.searchcat.qqsg.daily-tasks',
             'com.searchcat.qqsg.alt-leveling',
+            'com.searchcat.qqsg.mining',
         }:
+            return
+        if self.running or self.switching_lines:
+            QMessageBox.information(self.group_box, '请先停止运行', '框选区域前请停止脚本和批量换线。')
             return
         if not self.target_window_info:
             QMessageBox.information(self.group_box, '请先绑定窗口', '请先绑定要运行脚本的游戏窗口。')
@@ -1310,6 +1394,9 @@ class ScriptPlatformFeature:
 
     def open_switch_line_dialog(self):
         """Open the batch line-switch dialog for all currently bound windows."""
+        if self.switching_lines:
+            self.stop()
+            return
         if self.running or self.switching_lines:
             QMessageBox.information(
                 self.group_box, '操作进行中', '请先停止当前脚本或等待本次批量换线完成。'
@@ -1334,7 +1421,7 @@ class ScriptPlatformFeature:
         row = QHBoxLayout()
         row.addWidget(QLabel('目标线路：'))
         line_input = QSpinBox()
-        line_input.setRange(1, 99)
+        line_input.setRange(1, 16)
         line_input.setValue(1)
         line_input.setSuffix(' 线')
         row.addWidget(line_input)
@@ -1389,9 +1476,11 @@ class ScriptPlatformFeature:
         worker.start()
 
     def _on_batch_line_switch_finished(self, success: int, failed: int):
+        stopped = bool(self.switch_line_worker and self.switch_line_worker.isInterruptionRequested())
         self.switching_lines = False
         self.switch_line_worker = None
-        self._log(f'[批量换线] 完成：成功 {success} 个，失败 {failed} 个')
+        result = '已停止' if stopped else '完成'
+        self._log(f'[批量换线] {result}：成功 {success} 个，失败 {failed} 个')
         self._sync_running_ui()
 
     def choose_window(self):
@@ -1598,7 +1687,7 @@ class ScriptPlatformFeature:
     def _update_start_enabled(self):
         manifest = self.current_manifest()
         self.start_btn.setEnabled(
-            (bool(manifest and self.target_windows) and not self.switching_lines) or self.running
+            (bool(manifest and self.target_windows) and not self.switching_lines) or self.running or self.switching_lines
         )
 
     def _read_config(self) -> dict:
@@ -1675,7 +1764,8 @@ class ScriptPlatformFeature:
         layout.addWidget(QLabel(
             f'来源：{installation / "data" / "objects.pkg"}\n'
             f'已从客户端 MapData.txt 解析 {len(catalog)} 张地图；名称和 ID 以当前客户端为准。\n'
-            f'连接关系候选资源：{len(connection_candidates)} 个（仅按文件名筛选，需进一步解析内容）。'
+            '可查看地形文件中的出口名称、原始坐标和候选目标地图；冲突记录不用于自动导航。\n'
+            f'其他连接候选资源：{len(connection_candidates)} 个（仅按文件名筛选）。'
         ))
         search = QLineEdit()
         search.setPlaceholderText('筛选地图名称或 ID')
@@ -1732,6 +1822,37 @@ class ScriptPlatformFeature:
             self.open_map_debug(data.get('name'), data.get('id'), entries[0])
 
         listing.itemDoubleClicked.connect(open_selected)
+        portals_btn = QPushButton('查看所选地图出口 / 连接')
+
+        def show_portals():
+            from plugin_platform.qqsg_portals import parse_portals
+
+            selected = listing.currentItem()
+            data = selected.data(Qt.UserRole) if selected else None
+            if not data or not data.get('terrain_entries'):
+                QMessageBox.information(dialog, '地图出口', '请选择一张可读取地形的地图。')
+                return
+            try:
+                by_id = {row['id']: row for row in rows}
+                portals = parse_portals(package.read(data['terrain_entries'][0]), data['id'], by_id)
+            except (OSError, ValueError) as error:
+                QMessageBox.warning(dialog, '出口读取失败', str(error))
+                return
+            states = {'consistent': '名称与候选 ID 一致', 'label_id_conflict': '名称与 ID 冲突',
+                      'unknown_target': '目标 ID 未知', 'ambiguous_label': '名称对应多张地图',
+                      'invalid': '记录异常'}
+            lines = [f"{data['name']} · ID {data['id']} · {len(portals)} 个出口",
+                     '坐标为地形原始单位，不能直接当鼠标坐标；实际过图尚未验证。', '']
+            for portal in portals:
+                lines.extend([
+                    f"{portal['label']} · 原始位置 {portal['position_raw']}",
+                    f"候选目标：{portal['target_name_candidate']}（ID {portal['target_id_candidate']}）",
+                    f"检查：{states[portal['evidence']]}；文字匹配 ID：{portal['label_target_ids']}", '',
+                ])
+            QMessageBox.information(dialog, '地图出口 / 连接候选', '\n'.join(lines))
+
+        portals_btn.clicked.connect(show_portals)
+        layout.addWidget(portals_btn)
         export_btn = QPushButton('导出地图清单')
 
         def export_maps():
@@ -1769,7 +1890,7 @@ class ScriptPlatformFeature:
         dialog.exec_()
 
     def toggle(self):
-        self.stop() if self.running else self.start()
+        self.stop() if self.running or self.switching_lines else self.start()
 
     def start(self):
         manifest = self.current_manifest()
@@ -1820,6 +1941,19 @@ class ScriptPlatformFeature:
             self._refresh_window_selector()
             return
 
+        if manifest.id == 'com.searchcat.qqsg.mining' and config.get('pickaxe_auto_buy_enabled', False) \
+                and len(valid_windows) != 1:
+            QMessageBox.warning(self.group_box, '自动购买暂限单窗口',
+                                '当前角色购买配置是共享的。请仅绑定一个窗口调试自动购买，避免预算记账冲突。')
+            return
+        purchase_session = None
+        if manifest.id == 'com.searchcat.qqsg.mining' and config.get('pickaxe_auto_buy_enabled', False):
+            try:
+                purchase_session = purchase_session_key(config.get('pickaxe_character_id', ''))
+            except ValueError as error:
+                QMessageBox.warning(self.group_box, '购买配置不完整', str(error))
+                return
+
         for info in valid_windows:
             session_id = info['id']
             if session_id in self.runners:
@@ -1833,7 +1967,7 @@ class ScriptPlatformFeature:
                 deepcopy(config),
                 info,
                 dry_run=self.dry_run_checkbox.isChecked(),
-                session_key=session_id,
+                session_key=purchase_session or session_id,
                 parent=self.group_box,
             )
             runner.log_received.connect(
@@ -1860,6 +1994,7 @@ class ScriptPlatformFeature:
     def stop(self):
         if self.switch_line_worker and self.switch_line_worker.isRunning():
             self.switch_line_worker.requestInterruption()
+            self._log('[批量换线] 正在停止；当前识别返回后不再执行点击或重试')
         for session_id, runner in list(self.runners.items()):
             self.session_states[session_id] = 'stopping'
             runner.stop()
@@ -1955,6 +2090,13 @@ class ScriptPlatformFeature:
         self.preview_label.show_image(qt_image)
 
     def _update_status_label(self):
+        if self.switching_lines and self.switch_line_worker:
+            state = ('正在停止换线' if self.switch_line_worker.isInterruptionRequested() else '批量换线中')
+            self.status_label.setText(
+                f'状态：{state} · 目标 {self.switch_line_worker.target_line} 线 · '
+                f'{len(self.switch_line_worker.windows)} 个窗口'
+            )
+            return
         active_id = self.target_window_info.get('id') if self.target_window_info else None
         active_state = self._state_name(self.session_states.get(active_id, 'ready')) if active_id else '未绑定'
         running_count = len(self.runners)
@@ -1964,10 +2106,12 @@ class ScriptPlatformFeature:
 
     def _sync_running_ui(self):
         self.running = bool(self.runners)
-        self.start_btn.setText('停止全部  Home' if self.running else '启动全部  Home')
-        self.plugin_list.setEnabled(not self.running)
-        self.dry_run_checkbox.setEnabled(not self.running)
+        self.start_btn.setText('停止换线  Home' if self.switching_lines else
+                               ('停止全部  Home' if self.running else '启动全部  Home'))
+        self.plugin_list.setEnabled(not self.running and not self.switching_lines)
+        self.dry_run_checkbox.setEnabled(not self.running and not self.switching_lines)
         if hasattr(self, 'switch_line_btn'):
-            self.switch_line_btn.setEnabled(bool(self.target_windows) and not self.running and not self.switching_lines)
+            self.switch_line_btn.setText('停止换线' if self.switching_lines else '批量换线')
+            self.switch_line_btn.setEnabled(self.switching_lines or (bool(self.target_windows) and not self.running))
         self._update_status_label()
         self._update_start_enabled()

@@ -1,10 +1,10 @@
 {
   "id": "com.searchcat.qqsg.mining",
   "name": "QQ三国多窗口挖矿",
-  "version": "0.2.0",
+  "version": "0.3.3",
   "sdk_version": "1",
   "entry": "main.py",
-  "description": "多个 QQ 三国窗口切换到 14 线、按配置路线进入矿区，巡逻并按 G 采集，支持整点刷新等待。",
+  "description": "多窗口换线与巡逻挖矿，恢复添加好友框代码寻路（支持单独调试及到达检测），F1自动采集疲劳；实验性矿锄补充。",
   "permissions": [
     "window.bind",
     "screen.capture",
@@ -14,6 +14,7 @@
   ],
   "config_schema": "config.schema.json",
   "templates": [
+    {"id": "pickaxe", "name": "备用矿锄图标模板", "path": "images/pickaxe.png"},
     {
       "id": "ore",
       "name": "矿点模板",

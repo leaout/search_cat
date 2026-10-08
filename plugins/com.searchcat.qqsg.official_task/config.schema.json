@@ -1,6 +1,14 @@
 {
   "type": "object",
   "properties": {
+    "coordinate_navigation_mode": {
+      "type": "string", "title": "坐标目标寻路方式（code=添加好友生成链接，terrain=原地形路线）",
+      "enum": ["terrain", "code"], "default": "terrain"
+    },
+    "code_navigation_timeout": {
+      "type": "number", "title": "代码寻路到达检测超时秒数",
+      "minimum": 1, "maximum": 600, "default": 120
+    },
     "task_mode": {
       "type": "string",
       "title": "任务模式",
@@ -423,6 +431,11 @@
       "maximum": 30,
       "default": 5
     },
+    "task_acquire_retries": {
+      "type": "integer",
+      "title": "始终未确认接任务时最多补接次数（用尽后需要人工检查）",
+      "minimum": 0, "maximum": 10, "default": 2
+    },
     "unchanged_retries": {
       "type": "integer",
       "title": "任务内容不变时优先补偿 NPC 对话次数",
@@ -432,10 +445,20 @@
     },
     "completion_confirm_scans": {
       "type": "integer",
-      "title": "任务消失完成确认次数",
-      "minimum": 1,
+      "title": "任务栏未知连续检测次数（不是成功条件）",
+      "minimum": 2,
       "maximum": 5,
       "default": 2
+    },
+    "completion_feedback_region": {
+      "type": "array",
+      "title": "官爵完成弹窗区域 [x,y,w,h]（留空则需人工确认；不能使用任务栏/聊天频道）",
+      "default": []
+    },
+    "completion_feedback_markers": {
+      "type": "array",
+      "title": "完成弹窗明确成功反馈文本（必须含官爵及已完成/成功完成等）",
+      "default": ["官爵任务已完成", "已完成官爵任务", "成功完成官爵任务", "官爵任务交付完成", "官爵任务完成成功"]
     },
     "completion_recovery_rounds": {
       "type": "integer",

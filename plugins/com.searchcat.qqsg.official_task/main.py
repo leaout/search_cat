@@ -1,5 +1,6 @@
-import re
 import math
+import re
+import time
 from difflib import SequenceMatcher
 
 from plugin_platform.task_answering import (
@@ -22,6 +23,13 @@ OPTIONAL_TEMPLATES = {
 # graph limits rather than user-facing character statistics.
 DEFAULT_JUMP_X = 180.0
 DEFAULT_JUMP_UP = 120.0
+OFFICIAL_COMPLETION_MARKERS = [
+    '官爵任务已完成', '已完成官爵任务', '成功完成官爵任务', '官爵任务交付完成', '官爵任务完成成功',
+]
+
+
+class OfficialTaskNeedsAttention(RuntimeError):
+    """Terminal unconfirmed state; automatic retry must not resume UI input."""
 
 
 def _point(config, name):
@@ -392,6 +400,118 @@ def _scan_task(context):
 
 def _task_signature(text):
     return re.sub(r'[^0-9A-Za-z\u4e00-\u9fff]', '', text)
+
+
+def _official_ready_for_delivery(text: str) -> bool:
+    """A tracker '已完成' means ready to hand in, not reward received."""
+    return any(_has_official_task(line) and '已完成' in _task_signature(line)
+               for line in str(text).splitlines())
+
+
+def _official_task_signature(text: str, npc_name: str) -> str:
+    """Ignore unrelated OCR noise; compare canonical NPC and delivery phase."""
+    phase = 'ready' if _official_ready_for_delivery(text) else 'active'
+    return f'official:{_task_signature(str(npc_name))}:{phase}'
+
+
+def _completion_feedback_text(text: str, markers: list[str]) -> bool:
+    """Accept explicit official-task feedback, never generic rewards/negation."""
+    for line in str(text).splitlines():
+        compact = _task_signature(line)
+        if any(word in compact for word in (
+                '未', '没', '不', '是否', '怎样', '如何', '需要', '条件', '要求', '可获得', '可以',
+                '后', '若', '则', '吗', '请', '预览', '次数', '如果')) or any(char in line for char in ('?', '？')):
+            continue
+        if any(_task_signature(marker) in compact for marker in markers):
+            return True
+    return False
+
+
+def _completion_feedback_config(context):
+    region = context.config.get('completion_feedback_region', [])
+    if region == []:
+        return None
+    if not isinstance(region, list) or len(region) != 4 \
+            or any(type(value) is not int for value in region) \
+            or any(value < 0 for value in region[:2]) or any(value <= 0 for value in region[2:]):
+        raise ValueError('completion_feedback_region 必须是完成弹窗客户区 [x,y,w,h] 或空数组')
+    markers = context.config.get('completion_feedback_markers', OFFICIAL_COMPLETION_MARKERS)
+    if not isinstance(markers, list) or not markers or any(
+            not isinstance(marker, str) or '官爵' not in marker or '完成' not in marker
+            or not any(phrase in marker for phrase in ('已完成', '成功完成', '交付完成', '完成成功'))
+            or any(word in marker for word in ('未', '没', '不', '是否', '需要', '条件', '要求', '请'))
+            for marker in markers):
+        raise ValueError('完成反馈关键词必须同时明确包含官爵和完成，不能使用泛化奖励或否定文本')
+    tracker = context.config.get('task_region', [520, 70, 270, 430])
+    if isinstance(tracker, list) and len(tracker) == 4:
+        x, y, width, height = region
+        tx, ty, tw, th = tracker
+        if x < tx + tw and tx < x + width and y < ty + th and ty < y + height:
+            raise ValueError('完成反馈区域不能与任务追踪栏重叠；卡片的已完成只是等待交付')
+    return region, markers
+
+
+def _prepare_completion_feedback(context) -> None:
+    """Arm only from a clear pre-delivery dialog, never an already-successful one."""
+    context._official_completion_baseline = None
+    config = _completion_feedback_config(context)
+    if context.dry_run or config is None:
+        return
+    region, markers = config
+    try:
+        frame, lines = _ocr_text_lines(context, region)
+        timestamp, frame_id = getattr(frame, 'timestamp', None), getattr(frame, 'id', None)
+        if type(timestamp) not in (int, float) or not math.isfinite(timestamp) \
+                or not isinstance(frame_id, str) or not frame_id:
+            return
+        text = '\n'.join(item['text'] for item in lines)
+        context._official_completion_baseline = {
+            'clear': bool(text.strip()) and not _completion_feedback_text(text, markers),
+            'timestamp': timestamp, 'frame_id': frame_id,
+        }
+    except RuntimeError as error:
+        context.log(f'完成反馈基线读取失败，保留未确认状态：{error}', 'warning')
+
+
+def _confirm_official_completion(context, since: float) -> dict | None:
+    """Require two fresh scoped feedback captures after the final interaction.
+
+    No configured completion popup means unknown, not success. This helper
+    never opens/closes UI or presses keys. A task card or chat channel must not
+    be used as the configured evidence region.
+    """
+    config = _completion_feedback_config(context)
+    if context.dry_run or config is None:
+        return None
+    region, markers = config
+    baseline = getattr(context, '_official_completion_baseline', None)
+    if not isinstance(baseline, dict) or baseline.get('clear') is not True:
+        return None
+    baseline_time = baseline.get('timestamp')
+    if type(baseline_time) not in (int, float) or not math.isfinite(baseline_time) \
+            or baseline_time > since:
+        return None
+    frames, texts, latest = [], [], since
+    for _ in range(2):
+        try:
+            frame, lines = _ocr_text_lines(context, region)
+        except RuntimeError as error:
+            context.log(f'完成反馈识别失败，不能视为完成：{error}', 'warning')
+            return None
+        timestamp, frame_id = getattr(frame, 'timestamp', None), getattr(frame, 'id', None)
+        if type(timestamp) not in (int, float) or not math.isfinite(timestamp) \
+                or timestamp <= latest or not isinstance(frame_id, str) or not frame_id \
+                or frame_id == baseline.get('frame_id') or frame_id in frames:
+            return None
+        text = '\n'.join(item['text'] for item in lines)
+        if not _completion_feedback_text(text, markers):
+            return None
+        frames.append(frame_id)
+        texts.append(text)
+        latest = timestamp
+        _wait(context, 0.2)
+    return {'confirmed': True, 'text': texts[-1], 'frame_ids': frames,
+            'observed_at': latest, 'source': 'configured_completion_popup'}
 
 
 def _has_official_task(text, keyword='官爵'):
@@ -880,7 +1000,35 @@ def _navigate_route(context, npc_name, legacy_route):
         _move_to_waypoint(context, waypoint, index, len(waypoints))
 
 
+def _navigate_by_code(context, npc_name, route):
+    """Restore the historical DnpcWalkEx method with fresh arrival checks."""
+    from pathlib import Path
+    from plugin_platform.qqsg_code_navigation import navigate_and_wait
+    from plugin_platform.qqsg_data import QQSGPackage, find_installation, parse_map_catalog
+
+    if not isinstance(route, list) or len(route) != 3 or any(type(value) is not int for value in route):
+        raise ValueError(f'NPC {npc_name} 的代码路由必须是整数 [地图ID, 小地图X, 小地图Y]')
+    map_id, mini_x, mini_y = route
+    definition = context.config.get('navigation_routes', {}).get(npc_name, {})
+    map_name = str(definition.get('map', '')).strip() if isinstance(definition, dict) else ''
+    if not map_name:
+        source = context.config.get('route_data_source', {}).get('game_directory', '')
+        installation = Path(source) if source else find_installation()
+        if not installation:
+            raise RuntimeError('代码寻路缺少目标地图名称，请先导入当前游戏地图数据')
+        catalog = parse_map_catalog(QQSGPackage(installation / 'data' / 'objects.pkg').read('res/Txt/MapData.txt'))
+        matches = [item['name'] for item in catalog.values() if item['id'] == map_id]
+        if len(matches) != 1:
+            raise RuntimeError(f'当前游戏地图目录没有唯一匹配 ID {map_id}')
+        map_name = matches[0]
+    navigate_and_wait(context, map_id, mini_x * 100, mini_y * 100, map_name,
+                      timeout=float(context.config.get('code_navigation_timeout', 120)))
+
+
 def _navigate_to_target(context, npc_name, route, fallback_point):
+    if context.config.get('coordinate_navigation_mode', 'terrain') == 'code' and route:
+        _navigate_by_code(context, npc_name, route)
+        return
     if route:
         _navigate_route(context, npc_name, route)
     elif npc_name:
@@ -1215,17 +1363,34 @@ def _execute_terrain_route(context, plan, purpose, replan_count=0):
                 continue
             if action == 'jump':
                 next_step = steps[index] if index < len(steps) else None
-                jump_key = _jump_direction(
+                planned_dx = float(step['to'][0]) - float(step['from'][0])
+                directional_first = abs(planned_dx) > 1e-6
+                jump_key = (
+                    'right' if planned_dx > 0 else 'left'
+                ) if directional_first else _jump_direction(
                     step, next_step, target, aligned_position or position, previous_direction,
                 )
                 hold = float(context.config.get('jump_key_hold', 0.12))
                 before_jump = tuple(position)
-                context.log(f'优先执行原地跳：不按方向，只按住空格 {hold:.2f}s')
-                context.keyboard.hold_combo('space', duration=hold, mode=mode)
+                if directional_first:
+                    lead = float(context.config.get('jump_direction_lead', 0.10))
+                    follow = float(context.config.get('jump_direction_follow', 0.05))
+                    context.log(
+                        f'当前跳跃连接存在水平位移 {planned_dx:.2f}，优先执行 {jump_key} + 空格：'
+                        f'先按方向 {lead:.2f}s，空格 {hold:.2f}s，落地前继续方向 {follow:.2f}s'
+                    )
+                    context.keyboard.directional_jump(
+                        jump_key, lead_time=lead, jump_hold=hold,
+                        follow_time=follow, mode=mode,
+                    )
+                    previous_direction = jump_key
+                else:
+                    context.log(f'竖直跳跃连接优先执行原地跳：不按方向，只按住空格 {hold:.2f}s')
+                    context.keyboard.hold_combo('space', duration=hold, mode=mode)
                 transfer_executed = True
                 _wait(context, float(context.config.get('jump_landing_wait', 0.75)))
                 landing = tuple(read_position())
-                if landing != target_cell and landing == before_jump and jump_key:
+                if not directional_first and landing != target_cell and landing == before_jump and jump_key:
                     lead = float(context.config.get('jump_direction_lead', 0.10))
                     follow = float(context.config.get('jump_direction_follow', 0.05))
                     context.log(
@@ -1242,7 +1407,7 @@ def _execute_terrain_route(context, plan, purpose, replan_count=0):
                     landing = tuple(read_position())
                 if landing != target_cell:
                     context.log(
-                        f'原地跳/向前跳尝试后的实际落点 {landing}，预期连接格 {target_cell}；'
+                        f'跳跃尝试后的实际落点 {landing}，预期连接格 {target_cell}；'
                         f'立即从实时落点重新规划（第 {replan_count + 1}/{maximum_replans} 次）',
                         'warning',
                     )
@@ -1338,6 +1503,8 @@ def _run_step_until_success(context, name, operation):
         try:
             with context.step(name if attempt == 1 else f'{name}（重试 {attempt}）'):
                 return operation()
+        except OfficialTaskNeedsAttention:
+            raise
         except RuntimeError as error:
             context.log(
                 f'{name}本次未完成：{error}；脚本不停止，'
@@ -1369,9 +1536,14 @@ def on_start(context):
         raise RuntimeError('尚未校准官爵任务坐标。请先在模拟模式调整坐标，再将 calibrated 改为 true。')
     if not context.config.get('calibrated', False):
         context.log('当前未标记为已校准，仅允许模拟运行。', 'warning')
+    _completion_feedback_config(context)  # Reject invalid evidence configuration before game input.
     context.log(
         f'开始官爵任务：OCR 状态循环，输入方式 '
         f"{context.config.get('input_mode', 'foreground')}，模拟运行 {context.dry_run}"
+    )
+    context.log(
+        f"坐标目标寻路模式：{context.config.get('coordinate_navigation_mode', 'terrain')}；"
+        f"任务栏 NPC 点击优先：{bool(context.config.get('prefer_task_click_navigation', True))}"
     )
 
     routes = context.config.get('npc_routes', {})
@@ -1464,9 +1636,15 @@ def on_start(context):
     previous_signature = ''
     unchanged = 0
     empty_scans = 0
-    completed_steps = 0
+    task_transitions = 0
     seen_task = False
     completion_recovery_count = 0
+    acquire_retry_count = 0
+    last_npc = ''
+    last_task_text = ''
+    last_interacted_npc = ''
+    final_interaction_at = 0.0
+    completion_evidence = None
     cycle = 0
     phase = '初始化'
 
@@ -1476,29 +1654,42 @@ def on_start(context):
         context.debug.watch('task_phase', phase)
         context.log(f'官爵流程阶段：{phase}')
 
+    def progress_payload(status, **details):
+        return {'status': status, 'task_transitions': task_transitions,
+                'completed_steps': task_transitions, 'completed_steps_semantics': 'task_transitions_not_rewards',
+                'cycle': cycle, 'last_npc': last_npc, 'last_task_text': last_task_text, **details}
+
+    def needs_attention(reason):
+        set_phase('任务状态未确认，需要人工检查')
+        _save_progress(context, progress_payload('needs_attention', reason=reason))
+        context.log(f'{reason}；未记为完成，停止自动操作。检查任务窗口后可人工重新启动。', 'warning')
+        raise OfficialTaskNeedsAttention(reason)
+
     while True:
         cycle += 1
         try:
             with context.step(f'识别并处理当前任务 {cycle}'):
                 set_phase('识别任务栏')
                 text, lines = _scan_task(context)
-                signature = _task_signature(text)
                 task_keyword = str(context.config.get('task_keyword', '官爵'))
                 task_kind = _task_kind(text, task_keyword)
                 if task_kind != 'official':
                     if task_kind == 'other':
                         context.log(
-                            f'已识别到其他任务，官爵任务已从任务栏消失：'
-                            f'{text or "<空>"}；确认本轮官爵任务完成'
+                            f'当前识别到其他任务：{text or "<空>"}；不能据此确认官爵交付完成',
+                            'warning',
                         )
-                        break
                     empty_scans += 1
                     context.log(
                         f'未确认官爵任务（{task_kind}，连续 {empty_scans} 次）',
                         'warning',
                     )
-                    completion_scans = int(context.config.get('completion_confirm_scans', 2))
+                    completion_scans = max(2, int(context.config.get('completion_confirm_scans', 2)))
                     if seen_task and empty_scans >= completion_scans:
+                        if final_interaction_at:
+                            completion_evidence = _confirm_official_completion(context, final_interaction_at)
+                            if isinstance(completion_evidence, dict) and completion_evidence.get('confirmed') is True:
+                                break
                         recovery_rounds = max(
                             1,
                             int(context.config.get('completion_recovery_rounds', 2)),
@@ -1512,9 +1703,12 @@ def on_start(context):
                             )
                             empty_scans = 0
                             continue
-                        break
-                    acquire_retry_scans = int(context.config.get('task_acquire_retry_scans', 5))
+                        needs_attention('纠错后仍未确认官爵任务状态；没有明确交付完成反馈，任务栏消失不能视为成功')
+                    acquire_retry_scans = max(1, int(context.config.get('task_acquire_retry_scans', 5)))
                     if not seen_task and empty_scans >= acquire_retry_scans:
+                        if acquire_retry_count >= max(0, int(context.config.get('task_acquire_retries', 2))):
+                            needs_attention('多次接取后始终没有确认官爵任务；需要人工检查 NPC 对话和任务追踪栏')
+                        acquire_retry_count += 1
                         context.log(
                             '接任务后始终未识别到任务栏，重新执行 NPC 对话和接取操作',
                             'warning',
@@ -1528,13 +1722,22 @@ def on_start(context):
                 empty_scans = 0
                 seen_task = True
                 completion_recovery_count = 0
+                npc_name, route, fallback_point = _find_target(
+                    text, lines, target_catalog, context=context,
+                )
+                if not npc_name and not fallback_point:
+                    raise RuntimeError('任务栏中没有识别到可寻路的 NPC')
+                signature = _official_task_signature(text, npc_name or '任务栏目标')
+                if last_interacted_npc and npc_name and npc_name != last_interacted_npc:
+                    task_transitions += 1
+                    last_interacted_npc = ''
+                last_npc, last_task_text = npc_name or '任务栏目标', text
                 if signature == previous_signature:
                     unchanged += 1
                 else:
-                    if previous_signature:
-                        completed_steps += 1
                     unchanged = 0
                     previous_signature = signature
+                    final_interaction_at = 0.0
                 if unchanged:
                     dialog_retry_limit = max(
                         1,
@@ -1547,7 +1750,15 @@ def on_start(context):
                             '重新推进对话，暂不关闭窗口或重复寻路',
                             'warning',
                         )
+                        if _official_ready_for_delivery(text):
+                            _prepare_completion_feedback(context)
+                        interaction_started = time.time()
                         _finish_npc_dialog(context)
+                        if _official_ready_for_delivery(text):
+                            final_interaction_at = interaction_started
+                            completion_evidence = _confirm_official_completion(context, final_interaction_at)
+                            if isinstance(completion_evidence, dict) and completion_evidence.get('confirmed') is True:
+                                break
                         _wait(context, context.config.get('monitor_interval', 1.5))
                         continue
                     context.log(
@@ -1561,12 +1772,7 @@ def on_start(context):
                         '对话补偿后仍未完成',
                     )
                     unchanged = 0
-                npc_name, route, fallback_point = _find_target(
-                    text, lines, target_catalog, context=context,
-                )
                 context.log(f'当前目标 NPC：{npc_name or "未识别"}；任务签名：{signature}')
-                if not npc_name and not fallback_point:
-                    raise RuntimeError('任务栏中没有识别到可寻路的 NPC')
                 set_phase(f'前往任务 NPC：{npc_name or "任务栏目标"}')
                 if fallback_point and context.config.get('prefer_task_click_navigation', True):
                     _navigate_by_task_click(
@@ -1578,16 +1784,22 @@ def on_start(context):
                 set_phase(f'与任务 NPC 交互：{npc_name or "任务栏目标"}')
                 _talk_to_nearest_npc(context)
                 set_phase('确认任务完成或推进对话')
+                if _official_ready_for_delivery(text):
+                    _prepare_completion_feedback(context)
+                interaction_started = time.time()
                 _finish_npc_dialog(context)
-                _save_progress(context, {
-                    'status': 'monitoring',
-                    'completed_steps': completed_steps,
-                    'cycle': cycle,
-                    'npc': npc_name,
-                    'task_text': text,
-                })
-                context.debug.watch('completed_steps', completed_steps)
+                last_interacted_npc = npc_name or ''
+                if _official_ready_for_delivery(text):
+                    final_interaction_at = interaction_started
+                    completion_evidence = _confirm_official_completion(context, final_interaction_at)
+                    if isinstance(completion_evidence, dict) and completion_evidence.get('confirmed') is True:
+                        break
+                _save_progress(context, progress_payload('monitoring', npc=npc_name, task_text=text))
+                context.debug.watch('task_transitions', task_transitions)
+                context.log(f'已确认目标 NPC 转换 {task_transitions} 次（不是已完成任务数或奖励次数）')
                 _wait(context, context.config.get('monitor_interval', 1.5))
+        except OfficialTaskNeedsAttention:
+            raise
         except RuntimeError as error:
             context.log(
                 f'官爵流程阶段“{phase}”执行失败：{error}；'
@@ -1601,11 +1813,10 @@ def on_start(context):
             _wait(context, context.config.get('runtime_retry_interval', 2.0))
             continue
 
-    _save_progress(context, {
-        'status': 'completed',
-        'completed_steps': completed_steps,
-    })
-    context.log('官爵任务流程执行完毕，请确认游戏内任务已经完成。')
+    if not isinstance(completion_evidence, dict) or completion_evidence.get('confirmed') is not True:
+        needs_attention('流程结束但缺少明确完成反馈')
+    _save_progress(context, progress_payload('completed', completion_evidence=completion_evidence))
+    context.log('已从完成反馈区域连续两次确认官爵任务交付完成，结束本次流程。')
 
 
 def on_stop(context):

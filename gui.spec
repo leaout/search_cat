@@ -23,6 +23,9 @@ a = Analysis(
         'requests', 'urllib3', 'chardet', 'idna', 'certifi',
         'win32api',
         'plugin_platform.worker',
+        # Mining plugins import the fatigue parser dynamically from their entry point.
+        'plugin_platform.qqsg_fatigue',
+        'plugin_platform.qqsg_code_navigation',
     ],
     hookspath=[],
     hooksconfig={},

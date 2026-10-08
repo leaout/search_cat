@@ -39,6 +39,18 @@ class WindowAPI:
         """Restore and activate the bound window before foreground input."""
         return self._call('window.activate', {})
 
+    def read_gathering_fatigue(self) -> dict[str, Any]:
+        """Open F1, read the gathering counter, and verify the panel is closed."""
+        return self._call('window.gathering_fatigue', {})
+
+    def navigate_by_code(self, map_id: int, x: int, y: int) -> dict[str, Any]:
+        """Generate/click a DnpcWalkEx link using raw (not minimap) coordinates."""
+        return self._call('window.navigate_by_code', {'map_id': map_id, 'x': x, 'y': y})
+
+    def read_navigation_state(self, map_names: list[str] | None = None) -> dict[str, Any] | None:
+        """Read the mining corridor's current minimap name and coordinates."""
+        return self._call('window.navigation_state', {'map_names': map_names} if map_names else {})
+
 
 class CaptureAPI:
     def __init__(self, call: Callable):
@@ -87,12 +99,15 @@ class OCRAPI:
         self._call = call
 
     def recognize(self, frame: Frame, min_confidence: float = 0.5,
-                  preprocess: str = 'none') -> list[dict[str, Any]]:
-        return self._call('ocr.recognize', {
+                  preprocess: str = 'none', single_line: bool = False) -> list[dict[str, Any]]:
+        params = {
             'frame_id': frame.id,
             'min_confidence': min_confidence,
             'preprocess': preprocess,
-        })
+        }
+        if single_line:
+            params['single_line'] = True
+        return self._call('ocr.recognize', params)
 
 
 class MouseAPI:

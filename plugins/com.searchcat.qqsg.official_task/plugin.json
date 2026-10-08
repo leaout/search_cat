@@ -1,10 +1,10 @@
 {
   "id": "com.searchcat.qqsg.official-task",
   "name": "QQ三国官爵任务",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "sdk_version": "1",
   "entry": "main.py",
-  "description": "统一执行官爵、举孝廉和运送物资任务，支持自动寻路、答题和任务完成判断。",
+  "description": "官爵、举孝廉和运送物资任务；修正未知状态误报成功、方向跳跃和进度计数，支持可选代码寻路。",
   "permissions": [
     "window.bind",
     "screen.capture",
