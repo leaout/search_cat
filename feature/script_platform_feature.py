@@ -13,7 +13,7 @@ from PyQt5.QtCore import QThread, Qt, QTimer, pyqtSignal
 from PyQt5.QtGui import QImage, QPixmap, QTextCursor, QTextOption
 from PyQt5.QtWidgets import (QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFileDialog, QGroupBox, QHBoxLayout,
                              QLabel, QListWidget, QListWidgetItem, QLineEdit, QMessageBox,
-                             QPushButton, QSizePolicy, QSplitter, QSpinBox, QTextEdit, QVBoxLayout,
+                             QPushButton, QSizePolicy, QSplitter, QSpinBox, QTabWidget, QTextEdit, QVBoxLayout,
                              QWidget)
 
 from automation.services import AutomationHost
@@ -542,19 +542,28 @@ class ScriptPlatformFeature:
                 border-radius: 3px;
             }
         """)
-        root = QHBoxLayout(self.group_box)
-        root.setContentsMargins(12, 16, 12, 10)
-        root.setSpacing(12)
+        root = QVBoxLayout(self.group_box)
+        root.setContentsMargins(6, 10, 6, 6)
+        root.setSpacing(6)
 
         list_panel = QWidget()
-        list_layout = QVBoxLayout(list_panel)
+        list_layout = QHBoxLayout(list_panel)
         list_layout.setContentsMargins(0, 0, 0, 0)
         list_layout.setSpacing(8)
         list_layout.addWidget(QLabel('已安装脚本'))
         self.plugin_list = QListWidget()
         self.plugin_list.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.plugin_list.currentItemChanged.connect(self._display_selected_plugin)
-        list_layout.addWidget(self.plugin_list, 1)
+        # Retain the existing list model/selection contract for plugin lifecycle.
+        self.plugin_list.hide()
+        self.plugin_combo = QComboBox()
+        self.plugin_combo.setMinimumWidth(0)
+        self.plugin_combo.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
+        self.plugin_combo.setMinimumContentsLength(12)
+        self.plugin_combo.setModel(self.plugin_list.model())
+        self.plugin_combo.activated[int].connect(self.plugin_list.setCurrentRow)
+        self.plugin_list.currentRowChanged.connect(self.plugin_combo.setCurrentIndex)
+        list_layout.addWidget(self.plugin_combo, 1)
         install_layout = QHBoxLayout()
         install_directory_btn = QPushButton('目录安装')
         install_directory_btn.clicked.connect(self.install_directory)
@@ -566,9 +575,7 @@ class ScriptPlatformFeature:
         install_layout.addWidget(install_zip_btn)
         install_layout.addWidget(refresh_btn)
         list_layout.addLayout(install_layout)
-        list_panel.setMinimumWidth(200)
-        list_panel.setMaximumWidth(235)
-        root.addWidget(list_panel, 1)
+        root.addWidget(list_panel)
 
         control_panel = QWidget()
         control_layout = QVBoxLayout(control_panel)
@@ -770,14 +777,11 @@ class ScriptPlatformFeature:
         self.status_label.setObjectName('scriptStatus')
         control_layout.addWidget(self.status_label)
 
-        bottom_splitter = QSplitter(Qt.Horizontal)
-        bottom_splitter.setChildrenCollapsible(False)
-        bottom_splitter.setHandleWidth(8)
-        bottom_splitter.setOpaqueResize(True)
-        bottom_splitter.setMinimumHeight(270)
+        bottom_splitter = QTabWidget()
+        bottom_splitter.setMinimumHeight(140)
 
         log_panel = QWidget()
-        log_panel.setMinimumWidth(260)
+        log_panel.setMinimumWidth(0)
         log_panel.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         log_layout = QVBoxLayout(log_panel)
         log_layout.setContentsMargins(0, 0, 0, 0)
@@ -788,15 +792,15 @@ class ScriptPlatformFeature:
         self.log_display.setLineWrapMode(QTextEdit.WidgetWidth)
         self.log_display.setWordWrapMode(QTextOption.WrapAnywhere)
         self.log_display.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        self.log_display.setMinimumSize(240, 240)
+        self.log_display.setMinimumSize(0, 100)
         self.log_display.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.log_display.setStyleSheet('font-family: Consolas, monospace; font-size: 12px;')
         self.log_display.document().setMaximumBlockCount(500)
         log_layout.addWidget(self.log_display, 1)
-        bottom_splitter.addWidget(log_panel)
+        bottom_splitter.addTab(log_panel, '运行日志')
 
         preview_panel = QWidget()
-        preview_panel.setMinimumWidth(260)
+        preview_panel.setMinimumWidth(0)
         preview_panel.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         preview_layout = QVBoxLayout(preview_panel)
         preview_layout.setContentsMargins(0, 0, 0, 0)
@@ -804,7 +808,7 @@ class ScriptPlatformFeature:
         preview_layout.addWidget(QLabel('脚本截图预览'))
         self.preview_label = ScalablePreviewLabel('脚本执行截图将在这里显示')
         self.preview_label.setAlignment(Qt.AlignCenter)
-        self.preview_label.setMinimumSize(240, 240)
+        self.preview_label.setMinimumSize(0, 100)
         # A QLabel normally uses its pixmap's native width as its size hint.
         # Ignore that hint so a large captured frame cannot squeeze the log
         # panel; _render_frame() already scales the image to this viewport.
@@ -813,10 +817,7 @@ class ScriptPlatformFeature:
             'background: #F7F9FC; border: 1px solid #E4E9F0; border-radius: 8px;'
         )
         preview_layout.addWidget(self.preview_label, 1)
-        bottom_splitter.addWidget(preview_panel)
-        bottom_splitter.setSizes([1, 1])
-        bottom_splitter.setStretchFactor(0, 1)
-        bottom_splitter.setStretchFactor(1, 1)
+        bottom_splitter.addTab(preview_panel, '截图预览')
         control_layout.addWidget(bottom_splitter, 1)
         root.addWidget(control_panel, 4)
 
@@ -970,7 +971,7 @@ class ScriptPlatformFeature:
         self.plugin_list.clear()
         selected_row = 0
         for index, manifest in enumerate(self.manifests):
-            item = QListWidgetItem(f'{manifest.name}\n{manifest.version}')
+            item = QListWidgetItem(f'{manifest.name} · {manifest.version}')
             item.setToolTip(f'{manifest.name}\n版本：{manifest.version}\nID：{manifest.id}')
             item.setData(Qt.UserRole, index)
             self.plugin_list.addItem(item)
@@ -2109,6 +2110,7 @@ class ScriptPlatformFeature:
         self.start_btn.setText('停止换线  Home' if self.switching_lines else
                                ('停止全部  Home' if self.running else '启动全部  Home'))
         self.plugin_list.setEnabled(not self.running and not self.switching_lines)
+        self.plugin_combo.setEnabled(not self.running and not self.switching_lines)
         self.dry_run_checkbox.setEnabled(not self.running and not self.switching_lines)
         if hasattr(self, 'switch_line_btn'):
             self.switch_line_btn.setText('停止换线' if self.switching_lines else '批量换线')

@@ -47,9 +47,18 @@ class WindowAPI:
         """Generate/click a DnpcWalkEx link using raw (not minimap) coordinates."""
         return self._call('window.navigate_by_code', {'map_id': map_id, 'x': x, 'y': y})
 
-    def read_navigation_state(self, map_names: list[str] | None = None) -> dict[str, Any] | None:
-        """Read the mining corridor's current minimap name and coordinates."""
-        return self._call('window.navigation_state', {'map_names': map_names} if map_names else {})
+    def read_navigation_state(self, map_names: list[str] | None = None,
+                              diagnostics: bool = False) -> dict[str, Any] | None:
+        """Read a fresh minimap name and displayed coordinates from the bound client.
+
+        Pass known map names for the current task; omitted names use the mining
+        corridor defaults. Supports expanded and collapsed Build36 minimaps.
+        A failed read returns None, or a diagnostic dict when requested.
+        """
+        params = {'map_names': map_names} if map_names is not None else {}
+        if diagnostics:
+            params['diagnostics'] = True
+        return self._call('window.navigation_state', params)
 
 
 class CaptureAPI:

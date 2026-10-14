@@ -1,0 +1,10 @@
+{
+  "id": "com.searchcat.qqsg.position",
+  "name": "QQ三国位置读取与原生寻路",
+  "version": "1.0.0",
+  "sdk_version": "1",
+  "entry": "main.py",
+  "description": "多窗口持续读取小地图名称及坐标，保存每个窗口的位置；可配置目标调用原生寻路并检查到达。",
+  "permissions": ["window.bind", "screen.capture", "mouse.foreground", "keyboard.foreground", "filesystem.plugin_data"],
+  "config_schema": "config.schema.json"
+}

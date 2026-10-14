@@ -226,7 +226,23 @@ class HostTransactionTests(unittest.TestCase):
         with patch.object(host_nav, '_scan', return_value=(scans, 290, 185)) as scan:
             self.assertIsNone(host_nav.read_navigation_state(self.host))
         self.assertEqual(self.host.frames, {})
-        self.assertEqual(scan.call_args.args[1], (990, 0, 290, 185))
+        self.assertEqual(scan.call_args.args[1], (1075, 126, 203, 28))
+
+    def test_minimap_diagnostics_include_raw_text_and_crop(self):
+        self.host.frames = {'temp': object()}
+        self.host._capture_window.return_value = {'id': 'temp', 'width': 1280, 'height': 960}
+        with patch.object(host_nav, '_scan', return_value=([[{'text': '行脚商行馆入囗10,21'}]], 203, 28)):
+            result = host_nav.read_navigation_state(self.host, ['行脚商行馆入口'], diagnostics=True)
+        self.assertEqual(result['diagnostic']['texts'], [['行脚商行馆入囗10,21']])
+        self.assertEqual(self.host.frames, {})
+
+    def test_isolated_strip_allows_missing_brackets_but_not_guessed_digits(self):
+        names = ['行脚商行馆入口', '行脚商行馆']
+        for text in ['行脚商行馆入口10,21', '行脚商行馆入口（10，21', '行脚商行馆入口10,21）']:
+            self.assertEqual(nav.minimap_state([{'text': text}], names, allow_bare=True),
+                             {'map_name': names[0], 'position': [10, 21]})
+        for text in ['行脚商行馆入囗10,21', '行脚商行馆入口1021', '行脚商行馆入口10,21生命55']:
+            self.assertIsNone(nav.minimap_state([{'text': text}], names, allow_bare=True))
 
 
 class ArrivalTests(unittest.TestCase):

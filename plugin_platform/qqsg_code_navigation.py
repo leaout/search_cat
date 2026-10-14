@@ -81,9 +81,19 @@ def link_point(items: list[dict], prompt: tuple[int, int]) -> tuple[int, int] | 
     return points[0] if len(points) == 1 else None
 
 
-def minimap_state(items: list[dict], names: list[str]) -> dict | None:
+def minimap_state(items: list[dict], names: list[str], allow_bare: bool = False) -> dict | None:
     """Require a known map and an unambiguous coordinate pair in a small ROI."""
     text = ''.join(_text(item) for item in items).replace('．', '.').replace('·', '.')
+    if allow_bare:
+        # Only used for the isolated minimap label strip, never full-screen OCR.
+        text = re.sub(r'\s+', '', text)
+        matches = [name for name in names if text.startswith(normalize_map_name(name))
+                   and re.fullmatch(r'[（(\[]?\d{1,3}[,，、:：]\d{1,3}[）)\]]?',
+                                    text[len(normalize_map_name(name)):])]
+        if len(matches) == 1:
+            suffix = text[len(normalize_map_name(matches[0])):]
+            numbers = re.findall(r'\d+', suffix)
+            return {'map_name': matches[0], 'position': [int(value) for value in numbers]}
     known = [name for name in names if any(
         normalize_map_name(_text(item)) == normalize_map_name(name) for item in items
     ) or re.search(re.escape(normalize_map_name(name)) + r'(?=[（(\[]|$)', normalize_map_name(text))]

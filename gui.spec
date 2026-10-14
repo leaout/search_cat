@@ -23,9 +23,15 @@ a = Analysis(
         'requests', 'urllib3', 'chardet', 'idna', 'certifi',
         'win32api',
         'plugin_platform.worker',
+        # Plugin entry points are loaded from bundled source, not analyzed by PyInstaller.
+        'plugin_platform.task_answering',
         # Mining plugins import the fatigue parser dynamically from their entry point.
         'plugin_platform.qqsg_fatigue',
         'plugin_platform.qqsg_code_navigation',
+        # Position and task plugins load the installed client's map catalogue.
+        'plugin_platform.qqsg_data',
+        'automation.qqsg_code_navigation',
+        'plugin_platform.qqsg_traveler_terrain',
     ],
     hookspath=[],
     hooksconfig={},

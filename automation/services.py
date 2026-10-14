@@ -228,7 +228,7 @@ class AutomationHost:
 
     def _window_navigation_state(self, params: dict[str, Any]) -> dict[str, Any] | None:
         from automation.qqsg_code_navigation import read_navigation_state
-        return read_navigation_state(self, params.get('map_names'))
+        return read_navigation_state(self, params.get('map_names'), params.get('diagnostics') is True)
 
     def _capture_window(self, params: dict[str, Any], *, temporary: bool = False) -> dict[str, Any]:
         window = self._current_window()

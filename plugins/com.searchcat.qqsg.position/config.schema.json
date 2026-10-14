@@ -1,0 +1,11 @@
+{
+  "type": "object",
+  "properties": {
+    "game_directory": {"type": "string", "default": "D:\\WeGameApps\\QQ三国"},
+    "interval": {"type": "number", "default": 3, "minimum": 1, "maximum": 60},
+    "navigate": {"type": "boolean", "default": false},
+    "target_map": {"type": "string", "default": "秃龙洞口"},
+    "target_x": {"type": "integer", "default": 6, "minimum": 0, "maximum": 999},
+    "target_y": {"type": "integer", "default": 4, "minimum": 0, "maximum": 999}
+  }
+}

@@ -15,13 +15,11 @@ from datetime import datetime, timedelta
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QVBoxLayout, QHBoxLayout,
                             QWidget, QGroupBox, QTextEdit, QLabel, QPushButton, 
                             QLineEdit, QSpinBox, QCheckBox, QComboBox, QGridLayout,
-                            QStatusBar, QFrame, QListWidget)
+                            QStatusBar, QFrame, QListWidget, QScrollArea)
 from PyQt5.QtCore import Qt, QMetaObject, QObject, Q_ARG, QTimer, QDateTime, pyqtSignal
 from PyQt5.QtGui import QIcon, QFont
 from feature.ocr_feature import OCRFeature
 from feature.automation_feature import AutomationFeature
-from feature.coord_helper_feature import CoordHelperFeature
-from feature.yolo_feature import YOLOFeature
 from feature.travel_feature import TravelFeature
 from feature.script_platform_feature import ScriptPlatformFeature
 
@@ -92,8 +90,8 @@ class BaseGUI(QMainWindow):
     
     def init_ui(self):
         self.setWindowTitle('Search Cat')
-        self.resize(1120, 720)
-        self.setMinimumSize(960, 640)
+        self.resize(820, 580)
+        self.setMinimumSize(760, 520)
         self.setWindowIcon(QIcon(APP_ICON_PATH))
         
         # 创建状态栏
@@ -121,14 +119,14 @@ class BaseGUI(QMainWindow):
         
         # 主布局
         self.main_layout = QHBoxLayout(container)
-        self.main_layout.setContentsMargins(24, 20, 24, 20)
-        self.main_layout.setSpacing(20)
+        self.main_layout.setContentsMargins(10, 8, 10, 8)
+        self.main_layout.setSpacing(8)
         
         # 左侧功能区
         self.left_panel = QWidget()
         self.left_layout = QVBoxLayout(self.left_panel)
         self.left_layout.setContentsMargins(0, 0, 0, 0)
-        self.left_layout.setSpacing(14)
+        self.left_layout.setSpacing(6)
         
         # 右侧结果显示区
         self.right_panel = QWidget()
@@ -137,7 +135,11 @@ class BaseGUI(QMainWindow):
         self.right_layout.setSpacing(12)
         
         # 设置左右面板比例
-        self.main_layout.addWidget(self.left_panel, 3)
+        self.config_scroll = QScrollArea()
+        self.config_scroll.setWidgetResizable(True)
+        self.config_scroll.setFrameShape(QFrame.NoFrame)
+        self.config_scroll.setWidget(self.left_panel)
+        self.main_layout.addWidget(self.config_scroll, 3)
         self.main_layout.addWidget(self.right_panel, 2)
         
         # 创建定时器更新许可证显示
@@ -179,12 +181,6 @@ class QSearchApp(BaseGUI):
         self.automation_feature = AutomationFeature(self)
         self.automation_feature.create_ui()
         
-        self.coord_helper_feature = CoordHelperFeature(self)
-        self.coord_helper_feature.create_ui()
-        
-        self.yolo_feature = YOLOFeature(self)
-        self.yolo_feature.create_ui()
-
         self.travel_feature = TravelFeature(self)
         self.travel_feature.create_ui()
 
@@ -196,8 +192,6 @@ class QSearchApp(BaseGUI):
         self.feature_groups = {
             'OCR识别': self.ocr_feature.group_box,
             '自动操作': self.automation_feature.group_box,
-            '坐标助手': self.coord_helper_feature.group_box,
-            'YOLO检测': self.yolo_feature.group_box,
             '行脚助手': self.travel_feature.group_box,
             '脚本平台': self.script_platform_feature.group_box,
         }
@@ -231,28 +225,29 @@ class QSearchApp(BaseGUI):
     def setup_feature_selector(self):
         sidebar = QFrame()
         sidebar.setObjectName('sidebar')
-        sidebar.setFixedWidth(190)
+        sidebar.setFixedWidth(112)
         sidebar_layout = QVBoxLayout(sidebar)
-        sidebar_layout.setContentsMargins(14, 20, 14, 16)
-        sidebar_layout.setSpacing(12)
+        sidebar_layout.setContentsMargins(6, 8, 6, 8)
+        sidebar_layout.setSpacing(6)
 
         title = QLabel('Search Cat')
         title.setObjectName('appTitle')
         subtitle = QLabel('桌面识别与自动化工具')
         subtitle.setObjectName('appSubtitle')
         subtitle.setWordWrap(True)
+        subtitle.hide()
         sidebar_layout.addWidget(title)
         sidebar_layout.addWidget(subtitle)
 
         nav_label = QLabel('功能')
         nav_label.setObjectName('navLabel')
+        nav_label.hide()
         sidebar_layout.addWidget(nav_label)
 
         self.feature_combo = QListWidget()
         self.feature_combo.setObjectName('featureNav')
         self.feature_combo.addItems([
             'OCR识别', '行脚助手', '脚本平台', '自动操作',
-            '坐标助手', 'YOLO检测',
         ])
         self.feature_combo.setCurrentRow(0)
         self.feature_combo.setSpacing(3)
@@ -262,7 +257,7 @@ class QSearchApp(BaseGUI):
         self.start_feature_btn.clicked.connect(self.toggle_current_feature)
         self.start_feature_btn.hide()
 
-        shortcut = QLabel('HOME\n启动 / 停止当前功能')
+        shortcut = QLabel('Home 启停')
         shortcut.setObjectName('shortcutBadge')
         shortcut.setAlignment(Qt.AlignCenter)
         sidebar_layout.addWidget(shortcut)
@@ -274,6 +269,7 @@ class QSearchApp(BaseGUI):
         self.page_title.setObjectName('sectionTitle')
         self.page_hint = QLabel('配置当前功能后，可在右侧查看实时结果')
         self.page_hint.setObjectName('sectionHint')
+        self.page_hint.hide()
         page_header.addWidget(self.page_title)
         page_header.addWidget(self.page_hint)
         self.left_layout.insertLayout(0, page_header)
@@ -286,8 +282,6 @@ class QSearchApp(BaseGUI):
         display_names = {
             'OCR识别': 'OCR 识别',
             '自动操作': '自动操作',
-            '坐标助手': '坐标助手',
-            'YOLO检测': 'YOLO 目标检测',
             '行脚助手': '行脚洞口助手',
             '脚本平台': '自动化脚本平台',
         }
@@ -295,8 +289,6 @@ class QSearchApp(BaseGUI):
         hints = {
             'OCR识别': '按步骤选择窗口和题目区域，建议先测试再启动',
             '自动操作': '统一配置按键链或鼠标点击，可选择前台或后台执行',
-            '坐标助手': '记录目标窗口内的点坐标和区域',
-            'YOLO检测': '加载模型并配置目标检测区域',
             '行脚助手': '识别行脚场景并判断 1–6 号洞口',
             '脚本平台': '安装、配置、调试并运行独立自动化插件',
         }
@@ -313,10 +305,6 @@ class QSearchApp(BaseGUI):
             self.ocr_feature.toggle()
         elif self.current_feature == '自动操作':
             self.automation_feature.toggle()
-        elif self.current_feature == '坐标助手':
-            self.coord_helper_feature.toggle() if hasattr(self.coord_helper_feature, 'toggle') else None
-        elif self.current_feature == 'YOLO检测':
-            self.yolo_feature.toggle()
         elif self.current_feature == '行脚助手':
             self.travel_feature.toggle()
         elif self.current_feature == '脚本平台':
@@ -326,7 +314,7 @@ class QSearchApp(BaseGUI):
         """Stop automation immediately from a global safety hotkey."""
         for feature in (
             self.ocr_feature, self.automation_feature,
-            self.yolo_feature, self.travel_feature, self.script_platform_feature,
+            self.travel_feature, self.script_platform_feature,
         ):
             try:
                 feature.stop()
@@ -357,7 +345,7 @@ class QSearchApp(BaseGUI):
         current_group = QGroupBox()
         current_group.setObjectName('resultCard')
         current_layout = QVBoxLayout(current_group)
-        current_layout.setContentsMargins(18, 18, 18, 18)
+        current_layout.setContentsMargins(6, 6, 6, 6)
         
         self.current_result = QTextEdit()
         self.current_result.setReadOnly(True)
@@ -384,7 +372,7 @@ QFrame#sidebar {
     border: 1px solid #E4E9F0;
     border-radius: 12px;
 }
-QFrame#sidebar QLabel#appTitle { color: #172033; font-size: 22px; }
+QFrame#sidebar QLabel#appTitle { color: #172033; font-size: 14px; }
 QFrame#sidebar QLabel#appSubtitle { color: #718096; }
 QLabel#navLabel {
     color: #8A95A6; font-size: 11px; font-weight: 600;
@@ -410,7 +398,7 @@ QLabel#shortcutBadge {
 }
 QGroupBox {
     margin-top: 10px;
-    padding: 18px 14px 14px 14px;
+    padding: 10px 8px 8px 8px;
     font-weight: 600;
 }
 QGroupBox::title {
@@ -419,7 +407,7 @@ QGroupBox::title {
 }
 QGroupBox#resultCard { margin-top: 0; padding: 0; }
 QPushButton {
-    min-height: 36px; padding: 0 14px;
+    min-height: 28px; padding: 0 8px;
     background: #FFFFFF; border: 1px solid #CDD5E1; border-radius: 7px;
     color: #344054; font-weight: 500;
 }
@@ -431,7 +419,7 @@ QPushButton#primaryButton {
 }
 QPushButton#primaryButton:hover { background: #285ACB; border-color: #285ACB; }
 QLineEdit, QComboBox, QSpinBox, QDoubleSpinBox {
-    min-height: 36px; padding: 0 10px;
+    min-height: 28px; padding: 0 6px;
     background: #FFFFFF; border: 1px solid #CDD5E1; border-radius: 7px;
     selection-background-color: #356AE6;
 }
@@ -441,7 +429,7 @@ QLineEdit:focus, QComboBox:focus, QSpinBox:focus, QDoubleSpinBox:focus {
 QComboBox::drop-down { border: 0; width: 28px; }
 QTextEdit {
     background: #FBFCFE; border: 0; border-radius: 8px;
-    padding: 12px; color: #273449; font-size: 14px;
+    padding: 6px; color: #273449; font-size: 13px;
 }
 QCheckBox { spacing: 8px; }
 QCheckBox::indicator { width: 17px; height: 17px; }
@@ -459,7 +447,7 @@ QListWidget#featureNav {
     outline: 0;
 }
 QListWidget#featureNav::item {
-    min-height: 42px; border-radius: 7px; padding-left: 12px;
+    min-height: 30px; border-radius: 4px; padding-left: 6px;
     font-weight: 500;
 }
 QListWidget#featureNav::item:hover { background: #F3F6FA; color: #285ACB; }

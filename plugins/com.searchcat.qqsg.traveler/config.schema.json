@@ -1,0 +1,20 @@
+{
+  "type": "object",
+  "properties": {
+    "mode": {"type": "string", "title": "模式：navigate实时寻路 / preview路线预览", "enum": ["navigate", "preview"], "default": "navigate"},
+    "target_exit": {"type": "integer", "title": "目标出口：0依次尝试全部，1～6指定单个", "minimum": 0, "maximum": 6, "default": 0},
+    "preview_x": {"type": "integer", "title": "路线预览起点X（小地图坐标）", "default": 8},
+    "preview_y": {"type": "integer", "title": "路线预览起点Y（小地图坐标）", "default": 21},
+    "map_id": {"type": "integer", "title": "入口版本ID（同名地图无法自动区分，默认456试验）", "enum": [456,457,458,459,460,461], "default": 456},
+    "game_directory": {"type": "string", "title": "游戏目录（空为自动查找）", "default": ""},
+    "jump_x": {"type": "number", "title": "跳跃水平跨度（原始坐标）", "minimum": 20, "maximum": 400, "default": 180},
+    "jump_up": {"type": "number", "title": "跳跃高度（原始坐标）", "minimum": 20, "maximum": 300, "default": 120},
+    "drop_limit": {"type": "number", "title": "下落高度（原始坐标）", "minimum": 20, "maximum": 500, "default": 250},
+    "seconds_per_coordinate": {"type": "number", "title": "每格移动秒数", "minimum": 0.05, "maximum": 1, "default": 0.28},
+    "move_pulse_max": {"type": "number", "title": "单次移动最长秒数", "minimum": 0.1, "maximum": 1, "default": 0.6},
+    "attempt_timeout": {"type": "number", "title": "单个出口最长等待秒数", "minimum": 10, "maximum": 600, "default": 300},
+    "scan_interval": {"type": "number", "title": "小地图检测间隔秒数", "minimum": 0.2, "maximum": 5, "default": 0.7},
+    "trigger_key": {"type": "string", "title": "接近出口时触发按键（up或空字符串）", "enum": ["up", ""], "default": "up"},
+    "arrival_radius": {"type": "number", "title": "出口附近判定半径（小地图格）", "minimum": 0.5, "maximum": 2, "default": 1.2}
+  }
+}

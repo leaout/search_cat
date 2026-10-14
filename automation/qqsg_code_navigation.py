@@ -138,11 +138,11 @@ def start_code_navigation(host, params: dict) -> dict:
     return {'clicked': True, 'ui_restored': True, 'code': code}
 
 
-def read_navigation_state(host, names=None) -> dict | None:
+def read_navigation_state(host, names=None, diagnostics=False) -> dict | None:
     """Read a fresh known map/coordinate pair; release every temporary frame."""
     if names is None:
         names = list(MINING_MAPS.values())
-    if not isinstance(names, list) or not 1 <= len(names) <= 100 \
+    if not isinstance(names, list) or not 1 <= len(names) <= 4096 \
             or any(not isinstance(name, str) or not 1 <= len(name) <= 40 for name in names):
         raise ValueError('地图名列表格式无效')
     if host.dry_run:
@@ -154,10 +154,20 @@ def read_navigation_state(host, names=None) -> dict | None:
         width, height = frame['width'], frame['height']
     finally:
         host.frames.pop(frame['id'], None)
-    region = (max(0, width - 290), 0, min(width, 290), min(height, 185))
-    scans, _, _ = _scan(host, region, ('none', 'minimap_scale'))
-    states = [minimap_state(items, names) for items in scans]
-    states = [state for state in states if state is not None]
-    if not states or any(state != states[0] for state in states):
+    # Build36 native client layout: label sits below the top-right minimap.
+    if width < 210 or height < 154:
         return None
-    return states[0]
+    # Expanded minimap first; collapsed Build36 puts the label near the top.
+    for region in ((width - 205, 126, 203, 28), (width - 205, 24, 203, 40)):
+        scans, _, _ = _scan(host, region, ('minimap_scale', 'minimap_yellow'))
+        states = [minimap_state(items, names, allow_bare=True) for items in scans]
+        states = [state for state in states if state is not None]
+        conflict = bool(states) and any(state != states[0] for state in states)
+        if states and not conflict:
+            return states[0]
+        diagnostic = {'diagnostic': {'region': list(region), 'texts':
+                      [[str(item.get('text', '')) for item in items] for items in scans],
+                      'reason': '预处理读数冲突' if conflict else '地图名/坐标未匹配'}}
+        if conflict:
+            return diagnostic if diagnostics else None
+    return diagnostic if diagnostics else None
