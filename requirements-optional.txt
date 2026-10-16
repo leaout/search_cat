@@ -1,0 +1,9 @@
+# Legacy YOLO/audio experiments, not needed by the desktop application.
+# Prefer a separate virtual environment for these features.
+matplotlib
+SpeechRecognition
+pyaudio
+langchain
+langchain_community
+openai
+ultralytics>=8.0.0

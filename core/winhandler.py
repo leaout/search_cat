@@ -7,8 +7,6 @@ import pygetwindow as gw
 from PIL import Image
 import mss
 import time
-import tkinter as tk
-from tkinter import messagebox
 import numpy as np
 import win32con
 import win32gui
@@ -439,15 +437,14 @@ class WindowHandler:
         message (str): 要显示的消息内容。
         msg_type (str): 消息类型，可以是"info"、"warning"或"error"。
         """
-        root = tk.Tk()
-        root.withdraw()
-        if msg_type == "info":
-            messagebox.showinfo("信息", message)
-        elif msg_type == "warning":
-            messagebox.showwarning("警告", message)
-        elif msg_type == "error":
-            messagebox.showerror("错误", message)
-        root.destroy()
+        # This application is Windows-only. Native dialogs work both in Qt
+        # workers and CLI mode without creating a second GUI runtime.
+        title, icon = {
+            'info': ('信息', 0x40),
+            'warning': ('警告', 0x30),
+            'error': ('错误', 0x10),
+        }.get(msg_type, ('信息', 0x40))
+        ctypes.windll.user32.MessageBoxW(None, str(message), title, icon)
 
 
 if __name__ == "__main__":

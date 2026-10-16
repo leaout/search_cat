@@ -44,6 +44,9 @@ a = Analysis(
         'matplotlib', 'matplotlib.backends',
         'langchain', 'langchain_community', 'openai',
         'speech_recognition', 'pyaudio',
+        # All application windows use Qt; Pillow's optional ImageTk backend
+        # must not bring a second GUI runtime into the distribution.
+        'tkinter', '_tkinter', 'turtle', 'idlelib',
         # Cython is only needed to build PaddleOCR's optional training
         # utilities; the frozen application runs precompiled extensions.
         'Cython',

@@ -1,13 +1,9 @@
-# 必须在 PyQt5 之前加载 torch，否则 DLL 会冲突
+# 主界面不依赖Torch；可选研究功能使用独立进程。
 import sys
 import json
 import os
 from pathlib import Path
 os.environ.setdefault('KMP_DUPLICATE_LIB_OK', 'TRUE')
-try:
-    import torch
-except Exception:
-    pass
 
 import keyboard
 from datetime import datetime, timedelta

@@ -58,6 +58,30 @@ class TravelerExitTests(unittest.TestCase):
         self.assertEqual([a['exit'] for a in records[-1]['attempts']], list(range(1, 7)))
         self.assertTrue(all(a['result'] == 'returned_to_start' for a in records[-1]['attempts']))
 
+    def test_selected_exit_does_not_attempt_other_exits(self):
+        context, records = self.context([entry(), entry(), entry([10, 20]), entry(), entry()],
+                                        {'target_exit': 3})
+        with self.assertRaisesRegex(RuntimeError, '指定出口 3'):
+            MODULE.on_start(context)
+        self.pilot.assert_called_once_with(context, [], [1426, 1917])
+        self.assertEqual([item['exit'] for item in records[-1]['attempts']], [3])
+
+    def test_preview_saves_routes_without_window_or_key_actions(self):
+        context, records = self.context([], {'mode': 'preview', 'target_exit': 2})
+        self.pilot.return_value.plan.return_value = {'steps': [
+            {'action': 'climb', 'from': [8, 21], 'to': [8, 13]}]}
+        MODULE.on_start(context)
+        context.windows.read_navigation_state.assert_not_called()
+        self.assertEqual(context.keyboard.mock_calls, [])
+        self.pilot.return_value.plan.assert_called_once_with([8, 21])
+        self.assertEqual(records[0]['routes'][0]['exit'], 2)
+
+    def test_invalid_selected_exit_rejected_before_input(self):
+        context, _ = self.context([], {'target_exit': 7})
+        with self.assertRaises(ValueError):
+            MODULE.on_start(context)
+        self.pilot.assert_not_called()
+
     def test_success_on_third_exit_skips_remaining(self):
         states = [entry(), entry()] + [entry([10, 20]), entry(), entry()] * 2
         states += [entry([10, 20]), destination(), destination()]

@@ -5,7 +5,7 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from PyQt5.QtWidgets import QApplication, QVBoxLayout, QWidget, QTabWidget
+from PyQt5.QtWidgets import QApplication, QVBoxLayout, QWidget, QTabWidget, QScrollArea, QPushButton
 from feature.script_platform_feature import ScriptPlatformFeature
 
 
@@ -35,3 +35,27 @@ class CompactScriptTests(unittest.TestCase):
         self.app.processEvents()
         self.assertLessEqual(feature.group_box.minimumSizeHint().width(), 640)
         parent.close()
+
+    def test_official_long_status_keeps_start_button_in_view(self):
+        parent = QWidget()
+        parent.left_layout = QVBoxLayout(parent)
+        feature = ScriptPlatformFeature(parent)
+        with patch.object(feature, 'refresh_plugins'):
+            feature.create_ui()
+        feature.plugin_description.setText('权限：window.bind，screen.capture，keyboard.foreground。' * 8)
+        feature.qqsg_data_status.setText('NPC 路由库：60条 · 已采集1图/37 NPC · 小地图[1074,123,200,26] · 任务栏[1076,388,153,77]')
+        feature.qqsg_data_panel.show()
+        feature.window_selector.addItem('QQ三国客户端长标题角色名字 PID12345 ' * 4)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setWidget(parent)
+        scroll.resize(650, 560)
+        scroll.show()
+        self.app.processEvents()
+        self.assertEqual(scroll.horizontalScrollBar().maximum(), 0)
+        viewport = scroll.viewport()
+        point = feature.start_btn.mapTo(viewport, feature.start_btn.rect().topRight())
+        self.assertLess(point.x(), viewport.width())
+        for button in feature.qqsg_data_panel.findChildren(QPushButton):
+            self.assertLess(button.mapTo(viewport, button.rect().topRight()).x(), viewport.width())
+        scroll.close()

@@ -5,7 +5,6 @@ import json
 import threading
 from PIL import Image, ImageDraw, ImageFont
 import numpy as np
-from paddleocr import PaddleOCR
 from typing import Any, ClassVar, List, Tuple
 
 class Ocr:
@@ -27,6 +26,9 @@ class Ocr:
         if type(self)._shared_engine is None:
             with type(self)._engine_init_lock:
                 if type(self)._shared_engine is None:
+                    # Import only on the first actual OCR operation. Merely
+                    # opening the GUI or running key macros needs no predictor.
+                    from paddleocr import PaddleOCR
                     type(self)._shared_engine = PaddleOCR(
                         use_angle_cls=True, lang='ch', show_log=False,
                     )
